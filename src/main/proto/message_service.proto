@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+option java_package = "com.synapse.message_interface.proto";
+option java_outer_classname = "MessageServiceProto";
+option java_multiple_files = true;
+
+package messageinterface;
+
+service MessageInterfaceService {
+  // Unary RPC: single request → single response (REST-like)
+  rpc Process(MessageRequest) returns (MessageResponse);
+
+  // Bidirectional Streaming RPC: used for persistent connections
+  rpc ProcessStream(stream MessageRequest) returns (stream MessageResponse);
+}
+
+message MessageRequest {
+  bytes payload = 1;   // raw message bytes (JSON/XML/Protobuf content)
+  string format = 2;   // "JSON", "XML", "PROTOBUF"
+  string trace_id = 3; // optional trace ID
+  string unit_id = 4;  // optional target workflow unit ID (for routing)
+}
+
+message MessageResponse {
+  bytes payload = 1;   // response bytes
+  bool success = 2;
+  string error = 3;
+  string trace_id = 4;
+}

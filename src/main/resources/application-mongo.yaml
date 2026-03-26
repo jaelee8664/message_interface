@@ -1,0 +1,10 @@
+# MongoDB 활성화 프로필
+# 실행 방법: --spring.profiles.active=mongo
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/message-interface?serverSelectionTimeoutMS=3000&connectTimeoutMS=3000
+      auto-index-creation: false

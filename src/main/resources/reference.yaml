@@ -1,0 +1,24 @@
+# Message Interface Reference Configuration
+workflow:
+  editPassword: admin   # 워크플로우 수정 비밀번호
+
+kafka:
+  bootstrapServers: localhost:9092
+  # consumers are configured per workflow unit via Node0Definition
+
+grpc:
+  server:
+    port: 9090
+
+tcp:
+  server:
+    port: 9091
+
+log:
+  retentionDays: 7
+  maxSizeGb: 10
+  directory: message-logs
+
+history:
+  maxVersions: 10
+  directory: workflow-history

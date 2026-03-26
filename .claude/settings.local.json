@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat \"build/reports/tests/test/com.synapse.message_interface.engine.ScriptExecutorBenchmarkTest/single-script-execution---baseline\\(\\).html\")"
+    ]
+  }
+}
