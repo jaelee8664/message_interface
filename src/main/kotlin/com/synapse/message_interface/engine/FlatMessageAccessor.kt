@@ -1,5 +1,9 @@
 package com.synapse.message_interface.engine
 
+enum class fieldStatus(status: String){
+    NOKEY("noKey"),
+}
+
 object FlatMessageAccessor {
 
     /**
@@ -15,7 +19,7 @@ object FlatMessageAccessor {
             // Step 1: resolve named key if current is a map
             if (current is Map<*, *>) {
                 val m = current as Map<String, Any?>
-                if (!m.containsKey(part.name)) return null
+                if (!m.containsKey(part.name)) return fieldStatus.NOKEY
                 current = m[part.name]
                 path = if (path.isEmpty()) part.name else "$path.${part.name}"
             } else if (part.index == null) {
