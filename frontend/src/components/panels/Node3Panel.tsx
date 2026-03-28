@@ -118,6 +118,29 @@ function resolveFieldDefFromNode1(beforeKey: string, node1: Node1Definition): Fi
   return current
 }
 
+function formatFieldInfo(fieldDef: FieldDefinition | null): string {
+  if (!fieldDef) return 'unknown'
+
+  let typeLabel: string = fieldDef.type
+  if (fieldDef.type === 'LIST') {
+    const itemType = fieldDef.listItemType || 'UNKNOWN'
+    typeLabel = `List<${itemType}>`
+  } else if (fieldDef.type === 'CUSTOM') {
+    typeLabel = fieldDef.customTypeName ? `CUSTOM(${fieldDef.customTypeName})` : 'CUSTOM'
+  }
+
+  const nullability = fieldDef.nullable ? 'nullable' : 'non-null'
+  const mandatory = fieldDef.mandatory ? 'mandatory' : 'optional'
+  return `${typeLabel} · ${nullability} · ${mandatory}`
+}
+
+function formatRowKeyInfo(key: string, node1: Node1Definition | null): string {
+  if (!node1 || !key) return ''
+  const def = resolveFieldDefFromNode1(key, node1)
+  const info = formatFieldInfo(def)
+  return info ? `(${info})` : ''
+}
+
 function buildExprTemplate(beforeKey: string, node1: Node1Definition): string {
   const parts = beforeKey.split('.').map(p => p.replace(/\[.*?\]/g, ''))
 
@@ -483,6 +506,11 @@ const Node3Panel = forwardRef<Node3PanelHandle, Props>(function Node3Panel({ def
                     }}
                   />
                   <span className="text-blue-300 font-mono text-xs flex-1 truncate">{item.key}</span>
+                  {upstreamNode1 && (
+                    <span className="text-xs text-slate-400 truncate" title={formatRowKeyInfo(item.key, upstreamNode1)}>
+                      {formatRowKeyInfo(item.key, upstreamNode1)}
+                    </span>
+                  )}
                   <span className="text-slate-500 text-xs">→</span>
                   <input
                     type="text"
@@ -518,8 +546,11 @@ const Node3Panel = forwardRef<Node3PanelHandle, Props>(function Node3Panel({ def
               <div>
                 <span className="text-green-300 font-mono">{m.newKey}</span>
                 <span className="text-slate-500 mx-1">&larr;</span>
-                <span className="text-blue-300 font-mono">{m.beforeKey}</span>
-              </div>
+                <span className="text-blue-300 font-mono">{m.beforeKey}</span>                {upstreamNode1 && (
+                  <span className="text-xs text-slate-400 ml-2 truncate" title={formatRowKeyInfo(m.beforeKey, upstreamNode1)}>
+                    {formatRowKeyInfo(m.beforeKey, upstreamNode1)}
+                  </span>
+                )}              </div>
               <div className="flex gap-1">
                 <button onClick={() => { setEditingMapping(m); setEditingIndex(i) }} className="text-slate-400 hover:text-white px-1">&#9999;&#65039;</button>
                 <button onClick={() => onChange({ ...def, mappings: def.mappings.filter((_, j) => j !== i) })} className="text-slate-400 hover:text-red-400 px-1">&#10005;</button>

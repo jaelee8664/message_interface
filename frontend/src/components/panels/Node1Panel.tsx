@@ -445,7 +445,11 @@ function FieldRow({ field, onEdit, onRemove }: FieldRowProps) {
             : field.type === 'CUSTOM' && field.customTypeName ? field.customTypeName : field.type}
         </span>
         {field.nullable && <span className="text-yellow-500 ml-1">nullable</span>}
-        {!field.mandatory && <span className="text-slate-500 ml-1">optional</span>}
+        {field.mandatory ? (
+          <span className="text-emerald-400 ml-1">mandatory</span>
+        ) : (
+          <span className="text-slate-500 ml-1">optional</span>
+        )}
       </div>
       <div className="flex gap-1 shrink-0 ml-2">
         <button onClick={onEdit} className="text-slate-400 hover:text-white px-1">&#9999;&#65039;</button>
