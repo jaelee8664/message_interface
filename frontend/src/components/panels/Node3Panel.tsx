@@ -303,7 +303,7 @@ function AddItemRow({
                   type="text"
                   value={fieldValues[f.key] ?? ''}
                   onChange={e => updateField(f.key, e.target.value)}
-                  placeholder={`{$...} 또는 리터럴`}
+                  placeholder={`"문자열" · 123 · {$key}`}
                   list="add-item-field-keys"
                   className="flex-1 min-w-0 px-2 py-0.5 text-xs font-mono rounded bg-slate-600 border border-slate-500 text-green-300 placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 />

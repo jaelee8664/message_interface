@@ -72,77 +72,170 @@ export default function Node2Panel({ definition, onChange }: Props) {
 }
 
 function ValueReplaceTab({ rules, onChange }: { rules: ValueReplaceRule[]; onChange: (r: ValueReplaceRule[]) => void }) {
-  const [form, setForm] = useState<ValueReplaceRule>({ key: '', matchValue: '', afterValue: '' })
-  const add = () => {
-    if (!form.key) return
-    onChange([...rules, form])
-    setForm({ key: '', matchValue: '', afterValue: '' })
+  const EMPTY: ValueReplaceRule = { key: '', matchValue: '', afterValue: '' }
+  const [form, setForm] = useState<ValueReplaceRule>(EMPTY)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+
+  const startEdit = (index: number) => {
+    setEditingIndex(index)
+    setForm({ ...rules[index] })
   }
+
+  const cancel = () => {
+    setEditingIndex(null)
+    setForm(EMPTY)
+  }
+
+  const stripQuotes = (v: string) => v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v
+
+  const save = () => {
+    if (!form.key) return
+    const sanitized = { ...form, matchValue: stripQuotes(form.matchValue), afterValue: stripQuotes(form.afterValue) }
+    if (editingIndex !== null) {
+      const updated = [...rules]
+      updated[editingIndex] = sanitized
+      onChange(updated)
+      setEditingIndex(null)
+    } else {
+      onChange([...rules, sanitized])
+    }
+    setForm(EMPTY)
+  }
+
   return (
     <div className="space-y-3">
       <div className="space-y-2">
         {rules.map((r, i) => (
-          <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-700 border border-slate-600 text-xs">
+          <div key={i} className={`flex items-center justify-between px-2 py-1.5 rounded border text-xs ${editingIndex === i ? 'bg-blue-900 border-blue-500' : 'bg-slate-700 border-slate-600'}`}>
             <span className="font-mono text-blue-300">{r.key}</span>
             <span className="text-slate-400">{r.matchValue} &rarr; {r.afterValue}</span>
-            <button onClick={() => onChange(rules.filter((_, j) => j !== i))} className="text-slate-500 hover:text-red-400 ml-2">&#10005;</button>
+            <div className="flex items-center gap-1 ml-2">
+              <button onClick={() => startEdit(i)} className="text-slate-400 hover:text-blue-300 px-1">&#9998;</button>
+              <button onClick={() => onChange(rules.filter((_, j) => j !== i))} className="text-slate-500 hover:text-red-400">&#10005;</button>
+            </div>
           </div>
         ))}
       </div>
       <div className="space-y-2 p-3 rounded bg-slate-800 border border-slate-600">
+        {editingIndex !== null && (
+          <p className="text-xs text-blue-400 font-medium">수정 중 (#{editingIndex + 1})</p>
+        )}
         <InputField label="키" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="예: header.name" />
-        <InputField label="일치하는 값" value={form.matchValue} onChange={(e) => setForm({ ...form, matchValue: e.target.value })} placeholder="변환 전 값" />
-        <InputField label="변환할 값" value={form.afterValue} onChange={(e) => setForm({ ...form, afterValue: e.target.value })} placeholder="변환 후 값" />
-        <button onClick={add} className="w-full py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white">+ 추가</button>
+        <InputField label="일치하는 값" value={form.matchValue} onChange={(e) => setForm({ ...form, matchValue: e.target.value })} placeholder="변환 전 값 (따옴표 불필요)" />
+        <InputField label="변환할 값" value={form.afterValue} onChange={(e) => setForm({ ...form, afterValue: e.target.value })} placeholder="변환 후 값 (따옴표 불필요)" />
+        <div className="flex gap-2">
+          {editingIndex !== null && (
+            <button onClick={cancel} className="flex-1 py-1.5 text-xs rounded bg-slate-600 hover:bg-slate-500 text-white">취소</button>
+          )}
+          <button onClick={save} className={`py-1.5 text-xs rounded text-white ${editingIndex !== null ? 'flex-1 bg-green-600 hover:bg-green-700' : 'w-full bg-blue-600 hover:bg-blue-700'}`}>
+            {editingIndex !== null ? '수정 저장' : '+ 추가'}
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
 function TypeConvertTab({ rules, onChange }: { rules: TypeConvertRule[]; onChange: (r: TypeConvertRule[]) => void }) {
-  const [form, setForm] = useState<TypeConvertRule>({ key: '', beforeType: 'STRING', afterType: 'INT' })
-  const add = () => {
-    if (!form.key) return
-    onChange([...rules, form])
-    setForm({ key: '', beforeType: 'STRING', afterType: 'INT' })
+  const EMPTY: TypeConvertRule = { key: '', beforeType: 'STRING', afterType: 'INT' }
+  const [form, setForm] = useState<TypeConvertRule>(EMPTY)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+
+  const startEdit = (index: number) => {
+    setEditingIndex(index)
+    setForm({ ...rules[index] })
   }
+
+  const cancel = () => {
+    setEditingIndex(null)
+    setForm(EMPTY)
+  }
+
+  const save = () => {
+    if (!form.key) return
+    if (editingIndex !== null) {
+      const updated = [...rules]
+      updated[editingIndex] = form
+      onChange(updated)
+      setEditingIndex(null)
+    } else {
+      onChange([...rules, form])
+    }
+    setForm(EMPTY)
+  }
+
   return (
     <div className="space-y-3">
       <div className="space-y-2">
         {rules.map((r, i) => (
-          <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-700 border border-slate-600 text-xs">
+          <div key={i} className={`flex items-center justify-between px-2 py-1.5 rounded border text-xs ${editingIndex === i ? 'bg-blue-900 border-blue-500' : 'bg-slate-700 border-slate-600'}`}>
             <span className="font-mono text-blue-300">{r.key}</span>
             <span className="text-slate-400">{r.beforeType} &rarr; {r.afterType}</span>
-            <button onClick={() => onChange(rules.filter((_, j) => j !== i))} className="text-slate-500 hover:text-red-400 ml-2">&#10005;</button>
+            <div className="flex items-center gap-1 ml-2">
+              <button onClick={() => startEdit(i)} className="text-slate-400 hover:text-blue-300 px-1">&#9998;</button>
+              <button onClick={() => onChange(rules.filter((_, j) => j !== i))} className="text-slate-500 hover:text-red-400">&#10005;</button>
+            </div>
           </div>
         ))}
       </div>
       <div className="space-y-2 p-3 rounded bg-slate-800 border border-slate-600">
+        {editingIndex !== null && (
+          <p className="text-xs text-blue-400 font-medium">수정 중 (#{editingIndex + 1})</p>
+        )}
         <InputField label="키" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="예: header.time" />
         <SelectField label="변환 전 타입" value={form.beforeType} onChange={(e) => setForm({ ...form, beforeType: e.target.value as FieldType })} options={FIELD_TYPE_OPTIONS} />
         <SelectField label="변환 후 타입" value={form.afterType} onChange={(e) => setForm({ ...form, afterType: e.target.value as FieldType })} options={FIELD_TYPE_OPTIONS} />
-        <button onClick={add} className="w-full py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white">+ 추가</button>
+        <div className="flex gap-2">
+          {editingIndex !== null && (
+            <button onClick={cancel} className="flex-1 py-1.5 text-xs rounded bg-slate-600 hover:bg-slate-500 text-white">취소</button>
+          )}
+          <button onClick={save} className={`py-1.5 text-xs rounded text-white ${editingIndex !== null ? 'flex-1 bg-green-600 hover:bg-green-700' : 'w-full bg-blue-600 hover:bg-blue-700'}`}>
+            {editingIndex !== null ? '수정 저장' : '+ 추가'}
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
 function CustomCodeTab({ rules, onChange }: { rules: CustomCodeRule[]; onChange: (r: CustomCodeRule[]) => void }) {
-  const [form, setForm] = useState<CustomCodeRule>({ key: '', code: '', afterType: undefined })
-  const add = () => {
-    if (!form.key || !form.code) return
-    onChange([...rules, { ...form, afterType: form.afterType || undefined }])
-    setForm({ key: '', code: '', afterType: undefined })
+  const EMPTY: CustomCodeRule = { key: '', code: '', afterType: undefined }
+  const [form, setForm] = useState<CustomCodeRule>(EMPTY)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+
+  const startEdit = (index: number) => {
+    setEditingIndex(index)
+    setForm({ ...rules[index] })
   }
+
+  const cancel = () => {
+    setEditingIndex(null)
+    setForm(EMPTY)
+  }
+
+  const save = () => {
+    if (!form.key || !form.code) return
+    if (editingIndex !== null) {
+      const updated = [...rules]
+      updated[editingIndex] = { ...form, afterType: form.afterType || undefined }
+      onChange(updated)
+      setEditingIndex(null)
+    } else {
+      onChange([...rules, { ...form, afterType: form.afterType || undefined }])
+    }
+    setForm(EMPTY)
+  }
+
   return (
     <div className="space-y-3">
       <div className="space-y-2">
         {rules.map((r, i) => (
-          <div key={i} className="px-2 py-1.5 rounded bg-slate-700 border border-slate-600 text-xs">
+          <div key={i} className={`px-2 py-1.5 rounded border text-xs ${editingIndex === i ? 'bg-blue-900 border-blue-500' : 'bg-slate-700 border-slate-600'}`}>
             <div className="flex justify-between">
               <span className="font-mono text-blue-300">{r.key}</span>
               <div className="flex items-center gap-2">
                 {r.afterType && <span className="text-green-400">→ {r.afterType}</span>}
+                <button onClick={() => startEdit(i)} className="text-slate-400 hover:text-blue-300 px-1">&#9998;</button>
                 <button onClick={() => onChange(rules.filter((_, j) => j !== i))} className="text-slate-500 hover:text-red-400">✕</button>
               </div>
             </div>
@@ -151,6 +244,9 @@ function CustomCodeTab({ rules, onChange }: { rules: CustomCodeRule[]; onChange:
         ))}
       </div>
       <div className="space-y-2 p-3 rounded bg-slate-800 border border-slate-600">
+        {editingIndex !== null && (
+          <p className="text-xs text-blue-400 font-medium">수정 중 (#{editingIndex + 1})</p>
+        )}
         <InputField label="키" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="예: header.time" />
         <div className="space-y-1">
           <label className="block text-xs font-medium text-slate-300">코드 ({'{$key}'} 플레이스홀더 사용)</label>
@@ -175,7 +271,14 @@ function CustomCodeTab({ rules, onChange }: { rules: CustomCodeRule[]; onChange:
           ]}
           hint="코드 실행 결과를 이 타입으로 변환합니다. 단위 변환 시 사용하세요."
         />
-        <button onClick={add} className="w-full py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white">+ 추가</button>
+        <div className="flex gap-2">
+          {editingIndex !== null && (
+            <button onClick={cancel} className="flex-1 py-1.5 text-xs rounded bg-slate-600 hover:bg-slate-500 text-white">취소</button>
+          )}
+          <button onClick={save} className={`py-1.5 text-xs rounded text-white ${editingIndex !== null ? 'flex-1 bg-green-600 hover:bg-green-700' : 'w-full bg-blue-600 hover:bg-blue-700'}`}>
+            {editingIndex !== null ? '수정 저장' : '+ 추가'}
+          </button>
+        </div>
       </div>
     </div>
   )
