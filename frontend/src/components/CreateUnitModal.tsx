@@ -158,13 +158,9 @@ export default function CreateUnitModal({ onClose }: Props) {
                     <div className="text-xs text-slate-400 mb-1">생성될 노드</div>
                     <div className="flex gap-1.5 flex-wrap">
                       <span className="px-2 py-1 rounded text-xs bg-blue-900/50 border border-blue-700/50 text-blue-300">NODE0 수신 프로토콜</span>
-                      <span className="px-2 py-1 rounded text-xs bg-cyan-900/50 border border-cyan-700/50 text-cyan-300">NODE5 응답 설정</span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1.5">
-                      생성 후 캔버스에서 <strong className="text-slate-400">+ 노드 추가</strong> 버튼으로 NODE1~NODE4를 자유롭게 추가하고 엣지로 연결하세요.
-                    </p>
-                    <p className="text-xs text-amber-500/80 mt-1">
-                      NODE5는 응답 설정에 필수입니다. 삭제하면 저장이 거부됩니다.
+                      생성 후 캔버스에서 <strong className="text-slate-400">+ 노드 추가</strong> 버튼으로 NODE1~NODE5를 자유롭게 추가하고 엣지로 연결하세요.
                     </p>
                   </div>
                 </div>

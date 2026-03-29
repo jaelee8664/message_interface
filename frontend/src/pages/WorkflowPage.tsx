@@ -57,12 +57,6 @@ export default function WorkflowPage() {
     })
   }, [nodes, edges])
 
-  // NODE5 is mandatory: warn when missing from the current canvas
-  const hasNode5 = useMemo(
-    () => (nodes as any[]).some((n) => n.data?.nodeType === 'NODE5'),
-    [nodes]
-  )
-
   // Add-node dropdown
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false)
   const addNodeMenuRef = useRef<HTMLDivElement>(null)
@@ -246,13 +240,6 @@ export default function WorkflowPage() {
     try {
       const updatedUnit = flowToWorkflowUnit(unit, nodes, edges)
 
-      // Validate NODE5 presence (mandatory)
-      if (!updatedUnit.nodes.some((n) => n.nodeType === 'NODE5')) {
-        setSaveError('NODE5 (응답 설정 노드)가 없습니다. + 노드 추가에서 NODE5를 추가해 주세요.')
-        setSaving(false)
-        return
-      }
-
       const reservedPath = updatedUnit.nodes.find(
         (n) => n.node0?.protocol === 'REST_SERVER' && n.node0.path?.startsWith('/synapse/')
       )
@@ -278,17 +265,6 @@ export default function WorkflowPage() {
       <WorkflowUnitList />
 
       <div className="flex-1 relative flex flex-col">
-        {/* NODE5 missing warning */}
-        {selectedUnitId && !hasNode5 && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-900/90 border border-amber-600/70 text-xs text-amber-200 shadow-lg pointer-events-none">
-            <span>⚠</span>
-            <span>
-              <strong>NODE5 (응답 설정)</strong>가 없습니다. 저장하려면{' '}
-              <strong>+ 노드 추가 → NODE5</strong>를 추가해야 합니다.
-            </span>
-          </div>
-        )}
-
         {/* Canvas toolbar */}
         {selectedUnitId && (
           <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
