@@ -303,15 +303,18 @@ export default function Node5Panel({ definition, onChange }: Props) {
   return (
     <div className="space-y-4">
       {/* Info banner */}
-      <div className="rounded-md bg-cyan-950/50 border border-cyan-800/50 px-3 py-2 text-xs text-cyan-300 leading-relaxed space-y-1">
+      <div className="rounded-md bg-cyan-950/50 border border-cyan-800/50 px-3 py-2 text-xs text-cyan-300 leading-relaxed space-y-1.5">
         <p>NODE5는 REST/gRPC 서버의 강제 응답(성공·오류)을 설정합니다.</p>
-        <p>
-          <span className="text-cyan-400 font-medium">NODE5 → NODE4 엣지 연결 시:</span>
-          {' '}성공·오류 응답 body를 NODE4로도 전달합니다.
-          <br />
-          <span className="text-cyan-500">WebSocket · TCP · gRPC 양방향 추가 전송에 활용하세요.</span>
-        </p>
         <p className="text-cyan-500">NODE5가 없으면 응답을 보내지 않습니다.</p>
+        <div className="border-t border-cyan-800/40 pt-1.5 space-y-0.5">
+          <p className="text-cyan-400 font-medium">NODE5 → NODE4 추가 전송 (선택)</p>
+          <p className="text-cyan-500">
+            NODE5에서 NODE4로 엣지를 연결하면, 성공·오류 응답 body를 다른 모듈로도 추가 전송할 수 있습니다.
+          </p>
+          <p className="text-cyan-500">
+            예: 앞 단계의 NODE4 전송이 재시도까지 모두 실패했을 때 → NODE5가 실패 body를 생성 → 연결된 NODE4가 Kafka·WebSocket 등으로 실패 알림을 발송.
+          </p>
+        </div>
       </div>
 
       {/* Response type selector */}

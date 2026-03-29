@@ -106,7 +106,7 @@ export default function NodeSettingsPanel() {
             />
           )}
           {editingNode.nodeType === 'NODE4' && (
-            <Node4Panel definition={editingNode.node4} onChange={updateDefinition} />
+            <Node4Panel definition={editingNode.node4} onChange={updateDefinition} unitId={activeUnit.id} />
           )}
           {editingNode.nodeType === 'NODE5' && (
             <Node5Panel definition={editingNode.node5} onChange={updateDefinition} />

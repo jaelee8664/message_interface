@@ -86,7 +86,10 @@ export interface Node4Definition {
   targetPath?: string
   targetTopic?: string
   retryCount?: number
+  retryDelaySeconds?: number
   timeoutMs?: number
+  reconnectEnabled?: boolean
+  reconnectDelaySeconds?: number
 }
 
 // ── NODE5 – Response node ─────────────────────────────────────────────────────
