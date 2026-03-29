@@ -6,7 +6,7 @@ interface WorkflowNodeData {
   color: string
   definition: any
   unitId: string
-  isTerminal?: boolean
+
 }
 
 export default function WorkflowNodeComponent({ data, selected }: NodeProps) {
@@ -43,12 +43,6 @@ export default function WorkflowNodeComponent({ data, selected }: NodeProps) {
           </div>
         )
       })()}
-      {d.isTerminal && (
-        <div className="mt-1.5 flex items-center gap-1 text-xs text-red-300 bg-red-950/60 border border-red-800/50 rounded px-1.5 py-0.5 w-fit">
-          <span>↩</span>
-          <span>응답 반환</span>
-        </div>
-      )}
       <Handle type="source" position={Position.Right} style={{ background: d.color }} />
     </div>
   )

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
+import { useEffect, useCallback, useState, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -46,16 +46,7 @@ export default function WorkflowPage() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [isDirty, setIsDirty] = useState(false)
 
-  // Compute display nodes: NODE4 with no outgoing edge gets isTerminal=true
-  const displayNodes = useMemo(() => {
-    const sources = new Set((edges as any[]).map((e) => e.source))
-    return nodes.map((n: any) => {
-      if (n.data?.nodeType === 'NODE4' && !sources.has(n.id)) {
-        return { ...n, data: { ...n.data, isTerminal: true } }
-      }
-      return n
-    })
-  }, [nodes, edges])
+  const displayNodes = nodes
 
   // Add-node dropdown
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false)
@@ -170,7 +161,9 @@ export default function WorkflowPage() {
     const unit = units.find((u) => u.id === selectedUnitId)
     if (!unit) return
     // Prefer node.data.workflowNode (kept up-to-date by handleUpdateNode) over units store
-    const workflowNode = node.data?.workflowNode ?? unit.nodes.find((n: any) => n.id === node.id)
+    const workflowNode: WorkflowNode = node.data?.workflowNode
+      ?? unit.nodes.find((n: any) => n.id === node.id)
+      ?? { id: node.id, nodeType: node.data?.nodeType as NodeType, position: node.position }
     if (!workflowNode) return
     // Build live unit: canvas nodes include unsaved panel edits (e.g. NODE1 fields just confirmed),
     // fallback to store for nodes that have never been opened in the panel.
