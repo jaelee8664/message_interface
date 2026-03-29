@@ -73,6 +73,8 @@ class MessagePipeline(
                 // Failures here must not override the already-built error response
                 unit.edges.firstOrNull { it.sourceNodeId == node5.id }?.let { edge ->
                     try {
+                        // Update state with NODE5's error output map so downstream NODE4 serializes the NODE5 DTO
+                        if (errorResult.outputMap != null) state.currentMap = errorResult.outputMap.toMutableMap()
                         traverseForward(edge.targetNodeId, context, unit, state, mutableSetOf())
                     } catch (sideEffectEx: Exception) {
                         logError(context, unit.id, NodeType.NODE5, sideEffectEx)
@@ -172,6 +174,8 @@ class MessagePipeline(
         if (node.nodeType == NodeType.NODE5) {
             unit.edges.firstOrNull { it.sourceNodeId == nodeId }?.let { edge ->
                 try {
+                    // Update state with NODE5's output map so downstream NODE4 serializes the NODE5 DTO
+                    if (nodeResult.outputMap != null) state.currentMap = nodeResult.outputMap.toMutableMap()
                     traverseForward(edge.targetNodeId, context, unit, state, visited)
                 } catch (e: Exception) {
                     logError(context, unit.id, node.nodeType, e)

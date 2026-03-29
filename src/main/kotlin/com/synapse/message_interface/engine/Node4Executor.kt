@@ -7,12 +7,15 @@ import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.parser.MessageParserRegistry
 import com.synapse.message_interface.reception.GrpcClientRegistry
 import com.synapse.message_interface.reception.TcpConnectionRegistry
+import com.synapse.message_interface.reception.WebSocketClientRegistry
 import com.synapse.message_interface.reception.WebSocketSessionRegistry
 import com.synapse.message_interface.proto.MessageRequest
 import com.google.protobuf.ByteString
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactive.awaitFirstOrNull
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.ByteArraySerializer
@@ -21,7 +24,6 @@ import org.slf4j.LoggerFactory
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.core.publisher.Mono
 import reactor.netty.tcp.TcpClient
 import java.net.URI
@@ -33,6 +35,7 @@ class Node4Executor(
     private val parserRegistry: MessageParserRegistry,
     private val webClient: WebClient,
     private val webSocketSessionRegistry: WebSocketSessionRegistry,
+    private val webSocketClientRegistry: WebSocketClientRegistry,
     private val tcpConnectionRegistry: TcpConnectionRegistry,
     private val grpcClientRegistry: GrpcClientRegistry,
     private val referenceConfigService: ReferenceConfigService
@@ -53,7 +56,7 @@ class Node4Executor(
         val parser = parserRegistry.getParser(definition.messageFormat)
         val serialized = parser.serialize(data)
 
-        return withRetry(definition.retryCount, definition.timeoutMs) {
+        return withRetry(definition.retryCount, definition.retryDelaySeconds, definition.timeoutMs) {
             sendByProtocol(serialized, definition)
         }
     }
@@ -89,18 +92,24 @@ class Node4Executor(
             ProtocolType.GRPC_SERVER -> serialized  // gRPC server response: return serialized bytes
         }
 
-    private suspend fun <T> withRetry(retryCount: Int, timeoutMs: Long, block: suspend () -> T): T {
+    private suspend fun <T> withRetry(retryCount: Int, retryDelaySeconds: Int, timeoutMs: Long, block: suspend () -> T): T {
         var lastException: Exception? = null
         for (attempt in 0..retryCount) {
             try {
-                return withTimeoutOrNull(timeoutMs) { block() }
-                    ?: throw Node4SendException("송신 타임아웃 (${timeoutMs}ms 초과)")
+                return withTimeout(timeoutMs) { block() }
+            } catch (e: TimeoutCancellationException) {
+                lastException = Node4SendException("송신 타임아웃 (${timeoutMs}ms 초과)", e)
+                if (attempt < retryCount) {
+                    log.warn("[Node4] 재시도 ${attempt + 1}/$retryCount: 타임아웃")
+                    if (retryDelaySeconds > 0) delay(retryDelaySeconds * 1000L)
+                }
             } catch (e: CancellationException) {
                 throw e  // propagate real coroutine cancellation
             } catch (e: Exception) {
                 lastException = e
                 if (attempt < retryCount) {
                     log.warn("[Node4] 재시도 ${attempt + 1}/$retryCount: ${e.message}")
+                    if (retryDelaySeconds > 0) delay(retryDelaySeconds * 1000L)
                 }
             }
         }
@@ -132,15 +141,18 @@ class Node4Executor(
     // ── WebSocket ─────────────────────────────────────────────────────────────
 
     /**
-     * Send via a new one-shot WebSocket client connection to the target.
+     * Send via a persistent WebSocket client connection to the target.
+     * Reuses an existing open session for the same host:port/path; connects on first use.
      */
     private suspend fun sendViaWebSocketClient(data: ByteArray, definition: Node4Definition) {
-        val uri = URI("ws://${definition.targetHost ?: "localhost"}:${definition.targetPort ?: 80}${definition.targetPath ?: "/"}")
+        val host = definition.targetHost ?: "localhost"
+        val port = definition.targetPort ?: 80
+        val path = definition.targetPath ?: "/"
+        val key = "$host:$port$path"
+        val uri = URI("ws://$host:$port$path")
         try {
-            ReactorNettyWebSocketClient().execute(uri) { session ->
-                session.send(Mono.just(session.binaryMessage { buf -> buf.wrap(data) }))
-                    .then(session.close())
-            }.awaitFirstOrNull()
+            webSocketClientRegistry.getOrConnect(key, uri, definition.reconnectEnabled, definition.reconnectDelaySeconds)
+            webSocketClientRegistry.send(key, data, definition.messageFormat)
         } catch (e: Exception) {
             throw Node4SendException("WebSocket 송신 실패 ($uri): ${e.message}", e)
         }

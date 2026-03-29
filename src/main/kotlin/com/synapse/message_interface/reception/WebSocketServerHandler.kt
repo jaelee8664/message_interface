@@ -46,18 +46,11 @@ class WebSocketServerHandler(
                             endpoint = path,
                             protocol = "WEBSOCKET_SERVER"
                         )
-                        dispatcher.dispatch(ctx).body
+                        dispatcher.dispatch(ctx)
                     } catch (e: Exception) {
                         log.error("[WebSocket Server] 처리 오류: ${e.message}", e)
-                        null
                     }
-                }.flatMap { responseBytes ->
-                    if (responseBytes != null && responseBytes.isNotEmpty()) {
-                        session.send(Mono.just(session.binaryMessage { buf -> buf.wrap(responseBytes) }))
-                    } else {
-                        Mono.empty()
-                    }
-                }
+                }.then(Mono.empty())
             }
             .doFinally { sessionRegistry.remove(unit.id) }
             .then()

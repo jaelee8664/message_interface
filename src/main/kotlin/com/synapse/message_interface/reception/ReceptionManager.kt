@@ -12,6 +12,8 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.web.reactive.HandlerMapping
 import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping
 import org.springframework.web.reactive.socket.server.support.WebSocketHandlerAdapter
+import org.springframework.web.server.ServerWebExchange
+import reactor.core.publisher.Mono
 import java.util.concurrent.ConcurrentHashMap
 
 @Configuration
@@ -31,10 +33,17 @@ class ReceptionManager(
 
     @Bean
     fun webSocketHandlerMapping(): HandlerMapping {
-        // Single catch-all handler — unit lookup is done at connection time via registry
-        val mapping = SimpleUrlHandlerMapping()
-        mapping.urlMap = mapOf("/**" to WebSocketServerHandler(registry, dispatcher, sessionRegistry))
-        mapping.order = 1
+        // Only intercepts WebSocket upgrade requests — REST calls fall through unaffected
+        val wsHandler = WebSocketServerHandler(registry, dispatcher, sessionRegistry)
+        val mapping = object : SimpleUrlHandlerMapping() {
+            override fun getHandlerInternal(exchange: ServerWebExchange): Mono<Any> {
+                val upgrade = exchange.request.headers.getFirst("Upgrade")
+                if (upgrade?.lowercase() != "websocket") return Mono.empty()
+                return super.getHandlerInternal(exchange)
+            }
+        }
+        mapping.urlMap = mapOf("/**" to wsHandler)
+        mapping.order = -1
         return mapping
     }
 

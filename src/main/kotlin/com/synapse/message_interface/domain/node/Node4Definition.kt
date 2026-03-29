@@ -10,6 +10,9 @@ data class Node4Definition(
     val targetPort: Int? = null,
     val targetPath: String? = null,
     val targetTopic: String? = null,   // for Kafka
-    val retryCount: Int = 0,           // 재시도 횟수 (0 = 재시도 없음)
-    val timeoutMs: Long = 5000L        // 타임아웃 (밀리초)
+    val retryCount: Int = 0,            // 재시도 횟수 (0 = 재시도 없음)
+    val retryDelaySeconds: Int = 0,     // 재시도 간격 (0 = 즉시)
+    val timeoutMs: Long = 5000L,        // 타임아웃 (밀리초)
+    val reconnectEnabled: Boolean = true,
+    val reconnectDelaySeconds: Int = 5
 )
