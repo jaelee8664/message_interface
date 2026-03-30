@@ -47,12 +47,12 @@ class WebSocketClientHandler(
                         scope.launch {
                             while (running && session.isOpen) {
                                 delay(definition.pingIntervalSeconds * 1000L)
-                                try {
-                                    session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
-                                        .subscribe()
-                                } catch (e: Exception) {
-                                    log.warn("[WebSocket Client] Ping 실패: ${e.message}")
-                                }
+                                session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
+                                    .doOnError { e ->
+                                        log.warn("[WebSocket Client] Ping 실패, 연결 종료: ${e.message}")
+                                        session.close().subscribe()
+                                    }
+                                    .subscribe()
                             }
                         }
                     } else null
