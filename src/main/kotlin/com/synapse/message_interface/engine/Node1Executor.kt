@@ -14,9 +14,12 @@ class Node1Executor(private val parserRegistry: MessageParserRegistry) {
      * Parse raw bytes and validate against Node1Definition.
      * Returns a mutable map of the parsed and validated message.
      */
-    fun execute(raw: ByteArray, definition: Node1Definition): MutableMap<String, Any?> {
-        val parser = parserRegistry.getParser(definition.messageFormat)
-        val parsed = parser.parse(raw).toMutableMap()
+    fun execute(
+        raw: ByteArray,
+        definition: Node1Definition,
+        preParsed: MutableMap<String, Any?>? = null
+    ): MutableMap<String, Any?> {
+        val parsed = preParsed ?: parserRegistry.getParser(definition.messageFormat).parse(raw).toMutableMap()
         for (field in definition.fields) {
             validateField(parsed, field, definition.customDtos, "")
         }

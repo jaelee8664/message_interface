@@ -8,6 +8,8 @@ import com.synapse.message_interface.log.MessageTraceLogger
 import com.synapse.message_interface.log.TraceLog
 import com.synapse.message_interface.log.TraceStatus
 import com.synapse.message_interface.parser.MessageParserRegistry
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.springframework.stereotype.Component
 import java.time.Instant
 
@@ -15,7 +17,9 @@ import java.time.Instant
 private class PipelineState(
     var rawBytes: ByteArray,
     var currentMap: MutableMap<String, Any?> = mutableMapOf()
-)
+) {
+    fun copy() = PipelineState(rawBytes = rawBytes, currentMap = currentMap.toMutableMap())
+}
 
 /**
  * Wraps a pipeline exception to preserve which node failed and the pre-wrap original exception.
@@ -118,7 +122,7 @@ class MessagePipeline(
             NodeType.NODE1 -> {
                 if (node.node1 != null) {
                     try {
-                        state.currentMap = node1Executor.execute(state.rawBytes, node.node1)
+                        state.currentMap = node1Executor.execute(state.rawBytes, node.node1, context.parsedMessage)
                         logSuccess(context, unit.id, node.nodeType, state.currentMap)
                     } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
                 }
@@ -184,13 +188,24 @@ class MessagePipeline(
             return nodeResult
         }
 
-        // All other nodes: follow next edge and let downstream result win if it carries a response
-        val nextEdge = unit.edges.firstOrNull { it.sourceNodeId == nodeId }
-        return if (nextEdge != null) {
-            val downstream = traverseForward(nextEdge.targetNodeId, context, unit, state, visited)
-            if (downstream.body != null || downstream.httpStatus != 200) downstream else nodeResult
-        } else {
-            nodeResult
+        // All other nodes: follow outgoing edges — single edge continues sequentially,
+        // multiple edges execute in parallel (fan-out), each with its own state copy.
+        val nextEdges = unit.edges.filter { it.sourceNodeId == nodeId }
+        return when {
+            nextEdges.isEmpty() -> nodeResult
+            nextEdges.size == 1 -> {
+                val downstream = traverseForward(nextEdges[0].targetNodeId, context, unit, state, visited)
+                if (downstream.body != null || downstream.httpStatus != 200) downstream else nodeResult
+            }
+            else -> coroutineScope {
+                val results = nextEdges.map { edge ->
+                    async {
+                        traverseForward(edge.targetNodeId, context, unit, state.copy(), visited.toMutableSet())
+                    }
+                }.map { it.await() }
+                // Return the first result that carries a response body or non-200 status
+                results.firstOrNull { it.body != null || it.httpStatus != 200 } ?: nodeResult
+            }
         }
     }
 

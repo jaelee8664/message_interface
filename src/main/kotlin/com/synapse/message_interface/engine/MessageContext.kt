@@ -7,5 +7,6 @@ data class MessageContext(
     val endpoint: String? = null,
     val protocol: String,
     val traceId: String = UUID.randomUUID().toString(),
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, String> = emptyMap(),
+    val parsedMessage: MutableMap<String, Any?>? = null
 )

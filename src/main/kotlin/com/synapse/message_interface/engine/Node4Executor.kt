@@ -6,9 +6,11 @@ import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.parser.MessageParserRegistry
 import com.synapse.message_interface.reception.GrpcClientRegistry
+import com.synapse.message_interface.reception.TcpClientConnectionPool
 import com.synapse.message_interface.reception.TcpConnectionRegistry
 import com.synapse.message_interface.reception.WebSocketClientRegistry
 import com.synapse.message_interface.reception.WebSocketSessionRegistry
+import com.synapse.message_interface.sender.KafkaProducerPool
 import com.synapse.message_interface.proto.MessageRequest
 import com.google.protobuf.ByteString
 import kotlinx.coroutines.CancellationException
@@ -16,16 +18,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.withTimeout
-import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.serialization.ByteArraySerializer
-import org.apache.kafka.common.serialization.StringSerializer
 import org.slf4j.LoggerFactory
-import org.apache.kafka.clients.producer.KafkaProducer
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import reactor.core.publisher.Mono
-import reactor.netty.tcp.TcpClient
 import java.net.URI
 
 class Node4SendException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
@@ -37,8 +34,10 @@ class Node4Executor(
     private val webSocketSessionRegistry: WebSocketSessionRegistry,
     private val webSocketClientRegistry: WebSocketClientRegistry,
     private val tcpConnectionRegistry: TcpConnectionRegistry,
+    private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val grpcClientRegistry: GrpcClientRegistry,
-    private val referenceConfigService: ReferenceConfigService
+    private val referenceConfigService: ReferenceConfigService,
+    private val kafkaProducerPool: KafkaProducerPool
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -174,18 +173,22 @@ class Node4Executor(
     // ── TCP ───────────────────────────────────────────────────────────────────
 
     /**
-     * Send via a new one-shot TCP connection to the target.
+     * Send via a persistent TCP connection to the target.
+     * Reuses an existing open connection for the same host:port; connects on first use.
      */
     private suspend fun sendViaTcpClient(data: ByteArray, definition: Node4Definition) {
         val host = definition.targetHost ?: "localhost"
         val port = definition.targetPort ?: 9091
+        val key = "$host:$port"
         try {
-            val connection = TcpClient.create().host(host).port(port).connectNow()
-            connection.outbound()
-                .sendByteArray(Mono.just(data))
-                .then()
-                .doFinally { connection.dispose() }
-                .awaitFirstOrNull()
+            tcpClientConnectionPool.getOrConnect(
+                key = key,
+                host = host,
+                port = port,
+                reconnectEnabled = definition.reconnectEnabled,
+                reconnectDelaySeconds = definition.reconnectDelaySeconds
+            )
+            tcpClientConnectionPool.send(key, data)
         } catch (e: Exception) {
             throw Node4SendException("TCP 송신 실패 ($host:$port): ${e.message}", e)
         }
@@ -234,12 +237,7 @@ class Node4Executor(
     private suspend fun sendViaKafkaPublisher(data: ByteArray, definition: Node4Definition) {
         val topic = definition.targetTopic ?: throw Node4SendException("Kafka topic이 설정되지 않았습니다.")
         val bootstrapServers = referenceConfigService.getKafkaBootstrapServers()
-        val props = mapOf(
-            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to bootstrapServers,
-            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java
-        )
-        val producer = KafkaProducer<String, ByteArray>(props)
+        val producer = kafkaProducerPool.getOrCreate(bootstrapServers)
         try {
             kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
                 producer.send(ProducerRecord(topic, data)) { _, ex ->
@@ -250,8 +248,6 @@ class Node4Executor(
             log.debug("[Node4] Kafka 발행 완료: topic=$topic")
         } catch (e: Exception) {
             throw Node4SendException("Kafka 발행 실패 (topic=$topic): ${e.message}", e)
-        } finally {
-            producer.close()
         }
     }
 

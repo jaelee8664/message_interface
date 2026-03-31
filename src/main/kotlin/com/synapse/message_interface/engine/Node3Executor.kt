@@ -48,11 +48,15 @@ class Node3Executor(private val scriptExecutor: JavaScriptExecutor) {
                 || mapping.listAddItems?.any { it.addCondition != null || it.type == ListAddItemType.EXPR } == true
         val flatData = if (needsFlatData) FlatMessageAccessor.flatten(data) else emptyMap()
 
-        // Filter
+        // Filter — varsBuf is allocated once and mutated per item to avoid per-item Map allocation.
+        // currentElKeys tracks only the keys added for the current item so that only those are
+        // removed on the next iteration (preserving any "el.*" keys that may exist in flatData).
         if (!mapping.filterCode.isNullOrBlank()) {
+            val varsBuf = flatData.toMutableMap()
+            val currentElKeys = mutableSetOf<String>()
             list = list.filter { item ->
                 try {
-                    evalFilter(item, mapping.filterCode, flatData)
+                    evalFilter(item, mapping.filterCode, varsBuf, currentElKeys)
                 } catch (e: Exception) {
                     throw RuntimeException("Node3 filterCode 실행 오류 (mapping: ${mapping.beforeKey} → ${mapping.newKey}): ${e.message}", e)
                 }
@@ -103,22 +107,39 @@ class Node3Executor(private val scriptExecutor: JavaScriptExecutor) {
         return newItem
     }
 
+    /**
+     * Evaluate filterCode for a single list item.
+     * [varsBuf] is a mutable map pre-filled with the outer DTO's flat fields.
+     * [currentElKeys] tracks keys added for the previous item; only those are removed
+     * before adding the current item's keys — flatData keys are never touched.
+     */
     @Suppress("UNCHECKED_CAST")
-    private suspend fun evalFilter(item: Any?, filterCode: String, flatData: Map<String, Any?>): Boolean {
+    private suspend fun evalFilter(
+        item: Any?,
+        filterCode: String,
+        varsBuf: MutableMap<String, Any?>,
+        currentElKeys: MutableSet<String>
+    ): Boolean {
+        // Remove only keys that were added for the previous item (not flatData keys)
+        currentElKeys.forEach { varsBuf.remove(it) }
+        currentElKeys.clear()
+
         return when {
             item is Map<*, *> -> {
                 // item fields exposed under "el." prefix to avoid collision with outer DTO fields
                 val flatItem = FlatMessageAccessor.flatten(item as Map<String, Any?>, "el")
-                val vars = flatData + flatItem
-                validateFilterKeys(filterCode, vars)
-                scriptExecutor.executeTemplate(filterCode, vars) as? Boolean ?: false
+                flatItem.forEach { (k, v) -> varsBuf[k] = v }
+                currentElKeys.addAll(flatItem.keys)
+                validateFilterKeys(filterCode, varsBuf)
+                scriptExecutor.executeTemplate(filterCode, varsBuf) as? Boolean ?: false
             }
             item is List<*> -> false  // nested list: unsupported, always dropped
             else -> {
                 // primitive: exposed as 'el', outer DTO fields also available
-                val vars = flatData + mapOf("el" to item)
-                validateFilterKeys(filterCode, vars)
-                scriptExecutor.executeTemplate(filterCode, vars) as? Boolean ?: false
+                varsBuf["el"] = item
+                currentElKeys.add("el")
+                validateFilterKeys(filterCode, varsBuf)
+                scriptExecutor.executeTemplate(filterCode, varsBuf) as? Boolean ?: false
             }
         }
     }

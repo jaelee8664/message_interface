@@ -5,11 +5,14 @@ import com.synapse.message_interface.domain.LogicalOp
 import com.synapse.message_interface.domain.WorkflowCondition
 import org.springframework.http.server.PathContainer
 import org.springframework.stereotype.Component
+import org.springframework.web.util.pattern.PathPattern
 import org.springframework.web.util.pattern.PathPatternParser
+import java.util.concurrent.ConcurrentHashMap
 
 @Component
 class WorkflowConditionEvaluator {
     private val patternParser = PathPatternParser()
+    private val patternCache = ConcurrentHashMap<String, PathPattern>()
 
     /**
      * Evaluate whether the given message context matches a condition.
@@ -37,7 +40,8 @@ class WorkflowConditionEvaluator {
             ConditionType.ENDPOINT -> {
                 if (endpoint == null) false
                 else {
-                    val pattern = patternParser.parse(condition.endpointPattern ?: return false)
+                    val raw = condition.endpointPattern ?: return false
+                    val pattern = patternCache.getOrPut(raw) { patternParser.parse(raw) }
                     pattern.matches(PathContainer.parsePath(endpoint))
                 }
             }
