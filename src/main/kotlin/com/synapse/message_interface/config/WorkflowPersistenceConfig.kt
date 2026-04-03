@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.ApplicationRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.annotation.Order
 import java.io.File
 import java.time.Instant
 
@@ -23,6 +24,7 @@ class WorkflowPersistenceConfig(
     }
 
     @Bean
+    @Order(1)
     fun workflowLoader(registry: WorkflowRegistry, objectMapper: ObjectMapper) = ApplicationRunner {
         // 1. Try MongoDB first
         var loaded = false

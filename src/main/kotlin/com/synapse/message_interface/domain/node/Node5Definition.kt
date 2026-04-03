@@ -7,13 +7,11 @@ import com.synapse.message_interface.domain.MessageFormat
  *
  * NODE5 is limited to protocols that require a response to unblock the caller:
  * - [HTTP_RESPONSE]  – Return an HTTP response to a REST client (httpStatus applies).
- * - [GRPC_RESPONSE]  – Return a gRPC unary response to the caller (isSuccess flag applies).
  *
- * For session-based push (WebSocket, gRPC-bidi, TCP), use NODE4 instead.
+ * For session-based push (WebSocket, TCP), use NODE4 instead.
  */
 enum class Node5ResponseType {
-    HTTP_RESPONSE,
-    GRPC_RESPONSE
+    HTTP_RESPONSE
 }
 
 /**

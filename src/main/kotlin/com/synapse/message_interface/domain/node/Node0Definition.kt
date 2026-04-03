@@ -9,9 +9,8 @@ data class Node0Definition(
     val path: String? = null,         // for WebSocket/REST
     val topic: String? = null,        // for Kafka
     val groupId: String? = null,      // for Kafka consumer
-    val pingEnabled: Boolean = false, // WebSocket/TCP/gRPC Bidirectional client
+    val pingEnabled: Boolean = false,
     val pingIntervalSeconds: Int = 30,
     val reconnectEnabled: Boolean = true,
     val reconnectDelaySeconds: Int = 5,
-    val bidirectional: Boolean = false // for gRPC server (optional)
 )

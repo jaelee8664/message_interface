@@ -1,7 +1,6 @@
-export type MessageFormat = 'JSON' | 'XML' | 'PROTOBUF'
+export type MessageFormat = 'JSON' | 'XML'
 export type ProtocolType =
   | 'WEBSOCKET_SERVER' | 'WEBSOCKET_CLIENT'
-  | 'GRPC_SERVER' | 'GRPC_CLIENT'
   | 'TCP_SERVER' | 'TCP_CLIENT'
   | 'KAFKA_CONSUMER' | 'KAFKA_PUBLISHER'
   | 'REST_SERVER'
@@ -99,11 +98,10 @@ export interface Node4Definition {
  * Limited to protocols that require a response to unblock the caller.
  *
  * - HTTP_RESPONSE:  HTTP response to a REST client (httpStatus applies)
- * - GRPC_RESPONSE:  gRPC unary response (isSuccess flag applies)
  *
- * For session-based push (WebSocket, gRPC-bidi, TCP), use NODE4.
+ * For session-based push (WebSocket, TCP), use NODE4.
  */
-export type Node5ResponseType = 'HTTP_RESPONSE' | 'GRPC_RESPONSE'
+export type Node5ResponseType = 'HTTP_RESPONSE'
 
 /**
  * Success response config.

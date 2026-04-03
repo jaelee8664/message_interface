@@ -115,56 +115,9 @@ function parseXmlSample(text: string): ParseResult {
   return { fields: walkXmlElement(doc.documentElement, dtos, used), customDtos: dtos }
 }
 
-// Protobuf (.proto schema)
-const PROTO_SCALAR: Record<string, FieldType> = {
-  string: 'STRING', bytes: 'STRING',
-  int32: 'INT', int64: 'INT', uint32: 'INT', uint64: 'INT',
-  sint32: 'INT', sint64: 'INT', fixed32: 'INT', fixed64: 'INT', sfixed32: 'INT', sfixed64: 'INT',
-  float: 'DOUBLE', double: 'DOUBLE',
-  bool: 'BOOLEAN',
-}
-
-function parseProtoSample(text: string): ParseResult {
-  const dtos: Array<{ name: string; fields: FieldDefinition[] }> = []
-  let mainFields: FieldDefinition[] | null = null
-  const msgRegex = /message\s+(\w+)\s*\{([^{}]*)\}/g
-  let m
-  while ((m = msgRegex.exec(text)) !== null) {
-    const msgName = m[1]
-    const body = m[2]
-    const fields: FieldDefinition[] = []
-    const fieldRegex = /(?:(repeated|optional|required)\s+)?(\w+)\s+(\w+)\s*=\s*\d+\s*(?:\[[^\]]*\])?\s*;/g
-    let fm
-    while ((fm = fieldRegex.exec(body)) !== null) {
-      const modifier = fm[1]
-      const protoType = fm[2]
-      const fieldName = fm[3]
-      if (['message', 'enum', 'option', 'reserved', 'oneof'].includes(protoType)) continue
-      const repeated = modifier === 'repeated'
-      const optional = modifier === 'optional'
-      const scalar = PROTO_SCALAR[protoType]
-      const isCustom = !scalar
-      fields.push({
-        key: fieldName,
-        type: repeated ? 'LIST' : (isCustom ? 'CUSTOM' : scalar),
-        customTypeName: isCustom ? protoType : undefined,
-        listItemType: repeated ? (isCustom ? 'CUSTOM' : (scalar ?? 'STRING')) : undefined,
-        nullable: optional,
-        mandatory: !optional && !repeated,
-        description: fieldName,
-      })
-    }
-    if (mainFields === null) mainFields = fields
-    else dtos.push({ name: msgName, fields })
-  }
-  if (mainFields === null) throw new Error('.proto 형식에서 message 블록을 찾을 수 없습니다.')
-  return { fields: mainFields, customDtos: dtos }
-}
-
 function parseSample(text: string, format: MessageFormat): ParseResult {
   if (format === 'JSON') return parseJsonSample(text)
-  if (format === 'XML') return parseXmlSample(text)
-  return parseProtoSample(text)
+  return parseXmlSample(text)
 }
 
 // ── SampleParserSection ────────────────────────────────────────────────────────
@@ -172,7 +125,6 @@ function parseSample(text: string, format: MessageFormat): ParseResult {
 const SAMPLE_PLACEHOLDERS: Record<MessageFormat, string> = {
   JSON: `{\n  "field1": "value",\n  "count": 1,\n  "active": true,\n  "nested": { "a": "b" }\n}`,
   XML: `<root>\n  <field1>value</field1>\n  <count>1</count>\n  <active>true</active>\n</root>`,
-  PROTOBUF: `message Request {\n  string field1 = 1;\n  int32 count = 2;\n  bool active = 3;\n  repeated Item items = 4;\n}\nmessage Item {\n  int32 id = 1;\n  string name = 2;\n}`,
 }
 
 interface SampleParserProps {
@@ -211,7 +163,7 @@ function SampleParserSection({ messageFormat, hasExistingFields, onApply }: Samp
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-slate-700 pt-2">
           <div className="text-xs text-slate-500">
-            {messageFormat === 'PROTOBUF' ? '.proto 스키마' : `${messageFormat} 샘플`}을 붙여넣으면 필드를 자동으로 추출합니다.
+            {messageFormat} 샘플을 붙여넣으면 필드를 자동으로 추출합니다.
           </div>
           <textarea
             value={sampleText}
@@ -257,7 +209,6 @@ interface Props {
 const FORMAT_OPTIONS: { value: MessageFormat; label: string }[] = [
   { value: 'JSON', label: 'JSON' },
   { value: 'XML', label: 'XML' },
-  { value: 'PROTOBUF', label: 'Protobuf' },
 ]
 
 const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
@@ -714,7 +665,6 @@ export default function Node1Panel({ definition, onChange }: Props) {
         options={FORMAT_OPTIONS}
       />
 
-      {/* Sample auto-fill */}
       <SampleParserSection
         messageFormat={def.messageFormat}
         hasExistingFields={def.fields.length > 0}

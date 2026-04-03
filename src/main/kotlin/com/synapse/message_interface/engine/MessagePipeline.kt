@@ -122,7 +122,10 @@ class MessagePipeline(
             NodeType.NODE1 -> {
                 if (node.node1 != null) {
                     try {
-                        state.currentMap = node1Executor.execute(state.rawBytes, node.node1, context.parsedMessage)
+                        // Only use pre-parsed context message for the first NODE1 (no prior processing).
+                        // Subsequent NODE1 nodes (e.g. parsing a NODE4 response) must parse state.rawBytes fresh.
+                        val preParsed = if (state.currentMap.isEmpty()) context.parsedMessage else null
+                        state.currentMap = node1Executor.execute(state.rawBytes, node.node1, preParsed)
                         logSuccess(context, unit.id, node.nodeType, state.currentMap)
                     } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
                 }

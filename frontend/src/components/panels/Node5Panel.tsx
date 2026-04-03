@@ -62,11 +62,6 @@ const RESPONSE_TYPE_OPTIONS: { value: Node5ResponseType; label: string; descript
     label: 'HTTP 응답',
     description: 'REST 클라이언트에게 HTTP 상태 코드 + body를 반환합니다.',
   },
-  {
-    value: 'GRPC_RESPONSE',
-    label: 'gRPC 응답',
-    description: 'gRPC 단방향(unary) 요청에 대한 응답을 반환합니다.',
-  },
 ]
 
 // ── Success field preview ─────────────────────────────────────────────────────
@@ -304,7 +299,7 @@ export default function Node5Panel({ definition, onChange }: Props) {
     <div className="space-y-4">
       {/* Info banner */}
       <div className="rounded-md bg-cyan-950/50 border border-cyan-800/50 px-3 py-2 text-xs text-cyan-300 leading-relaxed space-y-1.5">
-        <p>NODE5는 REST/gRPC 서버의 강제 응답(성공·오류)을 설정합니다.</p>
+        <p>NODE5는 REST 서버의 강제 응답(성공·오류)을 설정합니다.</p>
         <p className="text-cyan-500">NODE5가 없으면 응답을 보내지 않습니다.</p>
         <div className="border-t border-cyan-800/40 pt-1.5 space-y-0.5">
           <p className="text-cyan-400 font-medium">NODE5 → NODE4 추가 전송 (선택)</p>

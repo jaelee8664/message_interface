@@ -8,18 +8,18 @@ import com.synapse.message_interface.parser.MessageParserRegistry
 import org.springframework.stereotype.Component
 
 @Component
-class Node1Executor(private val parserRegistry: MessageParserRegistry) {
+class Node1Executor(
+    private val parserRegistry: MessageParserRegistry,
+) {
 
-    /**
-     * Parse raw bytes and validate against Node1Definition.
-     * Returns a mutable map of the parsed and validated message.
-     */
     fun execute(
         raw: ByteArray,
         definition: Node1Definition,
         preParsed: MutableMap<String, Any?>? = null
     ): MutableMap<String, Any?> {
-        val parsed = preParsed ?: parserRegistry.getParser(definition.messageFormat).parse(raw).toMutableMap()
+        val parsed = preParsed
+            ?: parserRegistry.getParser(definition.messageFormat).parse(raw).toMutableMap()
+
         for (field in definition.fields) {
             validateField(parsed, field, definition.customDtos, "")
         }
@@ -35,17 +35,14 @@ class Node1Executor(private val parserRegistry: MessageParserRegistry) {
         val fullKey = if (keyPrefix.isEmpty()) field.key else "$keyPrefix.${field.key}"
         val value = FlatMessageAccessor.get(parsed, fullKey)
 
-        // Mandatory check: field must exist in message
         if (field.mandatory && value == fieldStatus.NOKEY) {
             throw IllegalArgumentException("Mandatory key '$fullKey' doesn't exist in field")
         }
 
-        // Nullable check: field value must not be null
         if (!field.nullable && value == null) {
             throw IllegalArgumentException("field key '$fullKey' doesn't allow nullable value")
         }
 
-        // Recurse into CUSTOM type fields
         if (field.type == FieldType.CUSTOM && field.customTypeName != null && value != null && value != fieldStatus.NOKEY) {
             val customDto = customDtos.find { it.name == field.customTypeName }
                 ?: throw IllegalArgumentException("CustomDtoDefinition '${field.customTypeName}' not found")

@@ -91,7 +91,7 @@ export default function NodeSettingsPanel() {
             <Node0Panel definition={editingNode.node0} onChange={updateDefinition} />
           )}
           {editingNode.nodeType === 'NODE1' && (
-            <Node1Panel definition={editingNode.node1} onChange={updateDefinition} />
+            <Node1Panel key={editingNode.id} definition={editingNode.node1} onChange={updateDefinition} />
           )}
           {editingNode.nodeType === 'NODE2' && (
             <Node2Panel definition={editingNode.node2} onChange={updateDefinition} />

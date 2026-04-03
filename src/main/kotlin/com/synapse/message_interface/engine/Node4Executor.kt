@@ -5,14 +5,11 @@ import com.synapse.message_interface.domain.MessageFormat
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.parser.MessageParserRegistry
-import com.synapse.message_interface.reception.GrpcClientRegistry
 import com.synapse.message_interface.reception.TcpClientConnectionPool
 import com.synapse.message_interface.reception.TcpConnectionRegistry
 import com.synapse.message_interface.reception.WebSocketClientRegistry
 import com.synapse.message_interface.reception.WebSocketSessionRegistry
 import com.synapse.message_interface.sender.KafkaProducerPool
-import com.synapse.message_interface.proto.MessageRequest
-import com.google.protobuf.ByteString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -35,7 +32,6 @@ class Node4Executor(
     private val webSocketClientRegistry: WebSocketClientRegistry,
     private val tcpConnectionRegistry: TcpConnectionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
-    private val grpcClientRegistry: GrpcClientRegistry,
     private val referenceConfigService: ReferenceConfigService,
     private val kafkaProducerPool: KafkaProducerPool
 ) {
@@ -47,13 +43,7 @@ class Node4Executor(
      * Applies timeout and retry as configured in [definition].
      */
     suspend fun execute(data: Map<String, Any?>, definition: Node4Definition): ByteArray? {
-        if (definition.messageFormat == MessageFormat.PROTOBUF &&
-            definition.protocol !in listOf(ProtocolType.GRPC_CLIENT, ProtocolType.GRPC_SERVER)) {
-            throw Node4SendException("Protobuf 형식은 gRPC 프로토콜만 지원합니다.")
-        }
-
-        val parser = parserRegistry.getParser(definition.messageFormat)
-        val serialized = parser.serialize(data)
+        val serialized = parserRegistry.getParser(definition.messageFormat).serialize(data)
 
         return withRetry(definition.retryCount, definition.retryDelaySeconds, definition.timeoutMs) {
             sendByProtocol(serialized, definition)
@@ -87,8 +77,6 @@ class Node4Executor(
                 sendViaKafkaPublisher(serialized, definition)
                 null
             }
-            ProtocolType.GRPC_CLIENT -> sendViaGrpcClient(serialized, definition)
-            ProtocolType.GRPC_SERVER -> serialized  // gRPC server response: return serialized bytes
         }
 
     private suspend fun <T> withRetry(retryCount: Int, retryDelaySeconds: Int, timeoutMs: Long, block: suspend () -> T): T {
@@ -123,7 +111,6 @@ class Node4Executor(
             val contentType = when (definition.messageFormat) {
                 MessageFormat.JSON -> "application/json"
                 MessageFormat.XML -> "application/xml"
-                MessageFormat.PROTOBUF -> "application/x-protobuf"
             }
             webClient.post()
                 .uri(url)
@@ -203,32 +190,6 @@ class Node4Executor(
             tcpConnectionRegistry.send(key, data)
         } catch (e: Exception) {
             log.warn("[Node4] TCP 연결 송신 실패 (key=$key): ${e.message}")
-        }
-    }
-
-    // ── gRPC ─────────────────────────────────────────────────────────────────
-
-    /**
-     * Send via gRPC:
-     * - If a bidirectional stream is open in GrpcClientRegistry → stream the request
-     * - Otherwise → not supported (gRPC requires an established stream or connection)
-     */
-    private suspend fun sendViaGrpcClient(data: ByteArray, definition: Node4Definition): ByteArray? {
-        val key = definition.targetPath ?: definition.targetHost ?: "default"
-        return if (grpcClientRegistry.isConnected(key)) {
-            try {
-                val request = MessageRequest.newBuilder()
-                    .setPayload(ByteString.copyFrom(data))
-                    .setFormat(definition.messageFormat.name)
-                    .build()
-                grpcClientRegistry.send(key, request)
-                null
-            } catch (e: Exception) {
-                throw Node4SendException("gRPC 스트림 송신 실패: ${e.message}", e)
-            }
-        } else {
-            log.warn("[Node4] gRPC 클라이언트 스트림이 없습니다 (key=$key). 먼저 Node0 gRPC 클라이언트를 연결하세요.")
-            null
         }
     }
 

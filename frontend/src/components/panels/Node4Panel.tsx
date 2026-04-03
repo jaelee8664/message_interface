@@ -10,7 +10,6 @@ interface Props {
 const FORMAT_OPTIONS: { value: MessageFormat; label: string }[] = [
   { value: 'JSON', label: 'JSON' },
   { value: 'XML', label: 'XML' },
-  { value: 'PROTOBUF', label: 'Protobuf (gRPC 전용)' },
 ]
 
 const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
@@ -19,8 +18,6 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'WEBSOCKET_SERVER', label: 'WebSocket 서버 (세션에 송신)' },
   { value: 'TCP_CLIENT', label: 'TCP 클라이언트' },
   { value: 'TCP_SERVER', label: 'TCP 서버 (연결에 송신)' },
-  { value: 'GRPC_CLIENT', label: 'gRPC 클라이언트' },
-  { value: 'GRPC_SERVER', label: 'gRPC 서버 (응답)' },
   { value: 'KAFKA_PUBLISHER', label: 'Kafka 발행' },
 ]
 
@@ -39,8 +36,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
 
   const update = (partial: Partial<Node4Definition>) => onChange({ ...def, ...partial })
 
-  const isProtobufForced = def.messageFormat === 'PROTOBUF'
-  const needsTarget = ['REST_SERVER', 'WEBSOCKET_CLIENT', 'TCP_CLIENT', 'GRPC_CLIENT'].includes(def.protocol)
+  const needsTarget = ['REST_SERVER', 'WEBSOCKET_CLIENT', 'TCP_CLIENT'].includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_PUBLISHER'
   const isWsClient = def.protocol === 'WEBSOCKET_CLIENT'
   const isSessionProtocol = def.protocol === 'WEBSOCKET_SERVER' || def.protocol === 'TCP_SERVER'
@@ -65,10 +61,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
         label="송신 프로토콜"
         value={def.protocol}
         onChange={(e) => update({ protocol: e.target.value as ProtocolType })}
-        options={isProtobufForced
-          ? PROTOCOL_OPTIONS.filter(o => o.value === 'GRPC_CLIENT' || o.value === 'GRPC_SERVER')
-          : PROTOCOL_OPTIONS}
-        hint={isProtobufForced ? 'Protobuf는 gRPC만 사용 가능합니다.' : undefined}
+        options={PROTOCOL_OPTIONS}
       />
 
       {isSessionProtocol && (

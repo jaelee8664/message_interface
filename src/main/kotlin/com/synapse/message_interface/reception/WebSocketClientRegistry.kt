@@ -109,8 +109,6 @@ class WebSocketClientRegistry {
         val msg = when (format) {
             MessageFormat.JSON, MessageFormat.XML ->
                 session.textMessage(String(data, Charsets.UTF_8))
-            MessageFormat.PROTOBUF ->
-                session.binaryMessage { buf -> buf.wrap(data) }
         }
         session.send(Mono.just(msg)).subscribe()
     }

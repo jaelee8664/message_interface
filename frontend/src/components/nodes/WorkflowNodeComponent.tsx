@@ -55,11 +55,8 @@ function getDefinitionSummary(nodeType: string, def: any): string {
     case 'NODE2': return `치환 ${def.valueReplaceRules?.length ?? 0} · 변환 ${def.typeConvertRules?.length ?? 0} · 커스텀 ${def.customCodeRules?.length ?? 0}`
     case 'NODE3': return `${def.mappings?.length ?? 0}개 매핑`
     case 'NODE4': return `${def.messageFormat ?? ''} → ${def.protocol ?? ''}`
-    case 'NODE5': {
-      const responseType = def.responseType ?? 'HTTP_RESPONSE'
-      if (responseType === 'GRPC_RESPONSE') return 'gRPC 응답'
+    case 'NODE5':
       return `HTTP 응답 · ${def.successConfig?.httpStatus ?? 200}`
-    }
     default: return ''
   }
 }

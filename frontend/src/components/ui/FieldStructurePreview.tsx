@@ -154,7 +154,7 @@ export default function FieldStructurePreview({ fields, customDtos = [], rootNam
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-slate-700 pt-2">
           <div className="flex items-center gap-1">
-            {(['JSON', 'XML', 'PROTOBUF'] as MessageFormat[]).map(f => (
+            {(['JSON', 'XML'] as MessageFormat[]).map(f => (
               <button
                 key={f}
                 onClick={() => setFormat(f)}
@@ -162,7 +162,7 @@ export default function FieldStructurePreview({ fields, customDtos = [], rootNam
                   format === f ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'
                 }`}
               >
-                {f === 'PROTOBUF' ? 'Protobuf' : f}
+                {f}
               </button>
             ))}
             <button

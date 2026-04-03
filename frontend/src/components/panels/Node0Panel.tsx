@@ -9,16 +9,14 @@ interface Props {
 const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'WEBSOCKET_SERVER', label: 'WebSocket 서버' },
   { value: 'WEBSOCKET_CLIENT', label: 'WebSocket 클라이언트' },
-  { value: 'GRPC_SERVER', label: 'gRPC 서버' },
-  { value: 'GRPC_CLIENT', label: 'gRPC 클라이언트' },
   { value: 'TCP_SERVER', label: 'TCP 서버' },
   { value: 'TCP_CLIENT', label: 'TCP 클라이언트' },
   { value: 'KAFKA_CONSUMER', label: 'Kafka Consumer' },
   { value: 'REST_SERVER', label: 'REST 서버' },
 ]
 
-const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'GRPC_CLIENT', 'TCP_CLIENT']
-const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT', 'GRPC_CLIENT']
+const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
+const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
 
 const DEFAULT: Node0Definition = {
   protocol: 'REST_SERVER',
@@ -26,7 +24,6 @@ const DEFAULT: Node0Definition = {
   pingIntervalSeconds: 30,
   reconnectEnabled: true,
   reconnectDelaySeconds: 5,
-  bidirectional: false,
 }
 
 export default function Node0Panel({ definition, onChange }: Props) {
@@ -34,7 +31,6 @@ export default function Node0Panel({ definition, onChange }: Props) {
   const isClient = CLIENT_PROTOCOLS.includes(def.protocol)
   const hasPing = PING_PROTOCOLS.includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_CONSUMER'
-  const isGrpcServer = def.protocol === 'GRPC_SERVER'
   const isRestServer = def.protocol === 'REST_SERVER'
   const restPathReserved = isRestServer && (def.path?.startsWith('/synapse/') ?? false)
 
@@ -107,15 +103,6 @@ export default function Node0Panel({ definition, onChange }: Props) {
             placeholder="예: message-interface-group"
           />
         </>
-      )}
-
-      {isGrpcServer && (
-        <CheckboxField
-          label="Bidirectional Streaming 사용"
-          checked={def.bidirectional}
-          onChange={(v) => update({ bidirectional: v })}
-          hint="체크 해제 시 일반 요청/응답 방식 사용"
-        />
       )}
 
       {hasPing && (

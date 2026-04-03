@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.annotation.Order
 import org.springframework.web.reactive.HandlerMapping
 import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping
 import org.springframework.web.reactive.socket.server.support.WebSocketHandlerAdapter
@@ -22,7 +23,6 @@ class ReceptionManager(
     private val dispatcher: WorkflowDispatcher,
     private val sessionRegistry: WebSocketSessionRegistry,
     private val connectionRegistry: TcpConnectionRegistry,
-    private val grpcClientRegistry: GrpcClientRegistry,
     private val referenceConfigService: ReferenceConfigService
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -48,6 +48,7 @@ class ReceptionManager(
     }
 
     @Bean
+    @Order(2)
     fun receptionManagerRunner() = ApplicationRunner {
         registry.getAll().forEach { unit -> startHandlers(unit) }
     }
@@ -83,16 +84,6 @@ class ReceptionManager(
                 // These are handled by Spring (WebSocketHandlerMapping / RestServerHandler)
                 log.info("[ReceptionManager] 서버 프로토콜 등록 완료: ${node0.protocol}, unitId=${unit.id}")
             }
-            ProtocolType.GRPC_SERVER -> {
-                // gRPC server is handled by Spring gRPC via GrpcServerHandler (@GrpcService)
-                log.info("[ReceptionManager] gRPC Server는 Spring gRPC로 관리: unitId=${unit.id}")
-            }
-            ProtocolType.GRPC_CLIENT -> {
-                val handler = GrpcClientHandler(unit, node0, dispatcher, grpcClientRegistry)
-                handler.start()
-                activeHandlers[unit.id] = handler
-                log.info("[ReceptionManager] gRPC Client 시작: unitId=${unit.id}")
-            }
         }
     }
 
@@ -102,7 +93,6 @@ class ReceptionManager(
             is TcpServerHandler -> handler.stop()
             is TcpClientHandler -> handler.stop()
             is KafkaConsumerHandler -> handler.stop()
-            is GrpcClientHandler -> handler.stop()
         }
     }
 

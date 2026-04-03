@@ -14,5 +14,5 @@ data class Node4Definition(
     val retryDelaySeconds: Int = 0,     // 재시도 간격 (0 = 즉시)
     val timeoutMs: Long = 5000L,        // 타임아웃 (밀리초)
     val reconnectEnabled: Boolean = true,
-    val reconnectDelaySeconds: Int = 5
+    val reconnectDelaySeconds: Int = 5,
 )

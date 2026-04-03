@@ -11,5 +11,5 @@ data class CustomDtoDefinition(
 data class Node1Definition(
     val messageFormat: MessageFormat,
     val fields: List<FieldDefinition>,
-    val customDtos: List<CustomDtoDefinition> = emptyList()
+    val customDtos: List<CustomDtoDefinition> = emptyList(),
 )
