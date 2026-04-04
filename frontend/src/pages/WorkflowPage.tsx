@@ -24,7 +24,7 @@ import WorkflowUnitList from '../components/WorkflowUnitList'
 import NodeSettingsPanel from '../components/panels/NodeSettingsPanel'
 import HistoryDrawer from '../components/HistoryDrawer'
 import { generateId } from '../utils/generateId'
-import { NodeType, WorkflowEdge, WorkflowNode } from '../types/workflow'
+import { NodeType, WorkflowCondition, WorkflowEdge, WorkflowNode } from '../types/workflow'
 
 const nodeTypes = { workflowNode: WorkflowNodeComponent }
 const edgeTypes = { workflowEdge: WorkflowEdgeComponent }
@@ -40,11 +40,13 @@ const NODE_TYPE_OPTIONS: { type: NodeType; label: string; color: string }[] = [
 
 export default function WorkflowPage() {
   const { units, selectedUnitId, fetchUnits, saveUnit } = useWorkflowStore()
-  const { openPanel, registerDeleteHandler, registerUpdateHandler } = usePanelStore()
+  const { openPanel, registerDeleteHandler, registerUpdateHandler, registerUpdateConditionHandler } = usePanelStore()
   const { isOpen: historyOpen, openDrawer: openHistory } = useHistoryStore()
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [isDirty, setIsDirty] = useState(false)
+  // Condition edits from NODE0 panel — applied on canvas save
+  const [pendingConditions, setPendingConditions] = useState<Record<string, WorkflowCondition>>({})
 
   const displayNodes = nodes
 
@@ -103,6 +105,16 @@ export default function WorkflowPage() {
   useEffect(() => {
     registerUpdateHandler(handleUpdateNode)
   }, [handleUpdateNode, registerUpdateHandler])
+
+  const handleUpdateCondition = useCallback((condition: WorkflowCondition) => {
+    if (!selectedUnitId) return
+    setPendingConditions((prev) => ({ ...prev, [selectedUnitId]: condition }))
+    setIsDirty(true)
+  }, [selectedUnitId])
+
+  useEffect(() => {
+    registerUpdateConditionHandler(handleUpdateCondition)
+  }, [handleUpdateCondition, registerUpdateConditionHandler])
 
   const handleDeleteEdge = useCallback((edgeId: string) => {
     setEdges((eds) => eds.filter((e) => e.id !== edgeId))
@@ -180,7 +192,8 @@ export default function WorkflowPage() {
       targetNodeId: fe.target,
       isDashed: savedEdgeById.get(fe.id)?.isDashed ?? false,
     }))
-    openPanel(workflowNode, { ...unit, nodes: liveNodes, edges: liveEdges })
+    const liveCondition = pendingConditions[unit.id] ?? unit.condition
+    openPanel(workflowNode, { ...unit, condition: liveCondition, nodes: liveNodes, edges: liveEdges })
   }, [units, selectedUnitId, openPanel, nodes, edges])
 
   // ── Add node to canvas ──
@@ -231,7 +244,9 @@ export default function WorkflowPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      const updatedUnit = flowToWorkflowUnit(unit, nodes, edges)
+      const pendingCondition = selectedUnitId ? pendingConditions[selectedUnitId] : undefined
+      const baseUnit = pendingCondition ? { ...unit, condition: pendingCondition } : unit
+      const updatedUnit = flowToWorkflowUnit(baseUnit, nodes, edges)
 
       const reservedPath = updatedUnit.nodes.find(
         (n) => n.node0?.protocol === 'REST_SERVER' && n.node0.path?.startsWith('/synapse/')
@@ -246,6 +261,7 @@ export default function WorkflowPage() {
       setShowSaveModal(false)
       setSaveBy('')
       setSavePassword('')
+      if (selectedUnitId) setPendingConditions((prev) => { const next = { ...prev }; delete next[selectedUnitId!]; return next })
     } catch (e: any) {
       setSaveError(e.response?.data?.error ?? e.message)
     } finally {

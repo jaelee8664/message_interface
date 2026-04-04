@@ -1,9 +1,42 @@
 import { useState } from 'react'
 import { useWorkflowStore } from '../store/workflowStore'
+import { ProtocolType, WorkflowUnit } from '../types/workflow'
+import { useResizablePanel } from '../hooks/useResizablePanel'
 import CreateUnitModal from './CreateUnitModal'
+
+const PROTOCOL_LABEL: Record<ProtocolType, string> = {
+  WEBSOCKET_SERVER: 'WS Server',
+  WEBSOCKET_CLIENT: 'WS Client',
+  TCP_SERVER: 'TCP Server',
+  TCP_CLIENT: 'TCP Client',
+  KAFKA_CONSUMER: 'Kafka',
+  KAFKA_PUBLISHER: 'Kafka Pub',
+  REST_SERVER: 'REST',
+}
+
+const PROTOCOL_COLOR: Record<ProtocolType, string> = {
+  WEBSOCKET_SERVER: 'bg-emerald-700 text-emerald-100',
+  WEBSOCKET_CLIENT: 'bg-emerald-800 text-emerald-200',
+  TCP_SERVER: 'bg-blue-700 text-blue-100',
+  TCP_CLIENT: 'bg-blue-800 text-blue-200',
+  KAFKA_CONSUMER: 'bg-orange-700 text-orange-100',
+  KAFKA_PUBLISHER: 'bg-orange-800 text-orange-200',
+  REST_SERVER: 'bg-violet-700 text-violet-100',
+}
+
+function getNode0Protocol(unit: WorkflowUnit): ProtocolType | null {
+  const node0 = unit.nodes.find((n) => n.nodeType === 'NODE0')
+  return node0?.node0?.protocol ?? null
+}
 
 export default function WorkflowUnitList() {
   const { units, selectedUnitId, selectUnit, loading, deleteUnit } = useWorkflowStore()
+  const { width, onHandleMouseDown } = useResizablePanel(256, {
+    direction: 'right',
+    storageKey: 'panel-left-width',
+    min: 160,
+    max: 520,
+  })
   const [search, setSearch] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -30,7 +63,17 @@ export default function WorkflowUnitList() {
 
   return (
     <>
-      <div className="w-64 bg-slate-900 border-r border-slate-700 flex flex-col">
+      <div
+        className="relative bg-slate-900 border-r border-slate-700 flex flex-col shrink-0"
+        style={{ width }}
+      >
+        {/* Resize handle */}
+        <div
+          onMouseDown={onHandleMouseDown}
+          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize z-10 group"
+        >
+          <div className="absolute inset-y-0 right-0 w-0.5 bg-transparent group-hover:bg-blue-500/50 transition-colors" />
+        </div>
         <div className="p-3 border-b border-slate-700">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-white">워크플로우 단위</span>
@@ -55,10 +98,20 @@ export default function WorkflowUnitList() {
             >
               <button
                 onClick={() => selectUnit(unit.id)}
-                className="flex-1 text-left px-3 py-2 text-sm"
+                className="flex-1 text-left px-3 py-2 text-sm min-w-0"
               >
-                <div className={`font-medium truncate ${selectedUnitId === unit.id ? 'text-blue-300' : 'text-slate-300'}`}>
-                  {unit.name}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className={`font-medium truncate flex-1 ${selectedUnitId === unit.id ? 'text-blue-300' : 'text-slate-300'}`}>
+                    {unit.name}
+                  </div>
+                  {(() => {
+                    const proto = getNode0Protocol(unit)
+                    return proto ? (
+                      <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded ${PROTOCOL_COLOR[proto]}`}>
+                        {PROTOCOL_LABEL[proto]}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
                 <div className="text-xs text-slate-500 truncate mt-0.5">
                   {unit.condition.rawExpression ?? unit.condition.type}

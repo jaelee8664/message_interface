@@ -1,9 +1,10 @@
-import { WorkflowUnit, WorkflowCondition, WorkflowNode } from '../types/workflow'
+import { WorkflowUnit, WorkflowCondition, WorkflowNode, ProtocolType } from '../types/workflow'
 import { generateId } from './generateId'
 
 export function createDefaultWorkflowUnit(
   name: string,
-  condition: WorkflowCondition
+  condition: WorkflowCondition,
+  protocol: ProtocolType
 ): WorkflowUnit {
   const unitId = generateId('unit')
   const node0Id = generateId('n0')
@@ -14,6 +15,15 @@ export function createDefaultWorkflowUnit(
     {
       id: node0Id,
       nodeType: 'NODE0',
+      node0: {
+        protocol,
+        pingEnabled: false,
+        pingIntervalSeconds: 30,
+        pongTimeoutSeconds: 10,
+        idleTimeoutSeconds: 60,
+        reconnectEnabled: true,
+        reconnectDelaySeconds: 5,
+      },
       position: { x: 150, y: 200 },
     },
   ]

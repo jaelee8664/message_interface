@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { usePanelStore } from '../../store/panelStore'
-import { WorkflowNode } from '../../types/workflow'
+import { useResizablePanel } from '../../hooks/useResizablePanel'
+import { WorkflowCondition, WorkflowNode } from '../../types/workflow'
 import Node0Panel from './Node0Panel'
 import Node1Panel from './Node1Panel'
 import Node2Panel from './Node2Panel'
@@ -28,14 +29,24 @@ const NODE_COLORS: Record<string, string> = {
 }
 
 export default function NodeSettingsPanel() {
-  const { isOpen, activeNode, activeUnit, closePanel, onDeleteNode, onUpdateNode } = usePanelStore()
+  const { isOpen, activeNode, activeUnit, closePanel, onDeleteNode, onUpdateNode, onUpdateCondition } = usePanelStore()
+  const { width, onHandleMouseDown } = useResizablePanel(384, {
+    direction: 'left',
+    storageKey: 'panel-right-width',
+    min: 300,
+    max: 800,
+  })
 
   const [editingNode, setEditingNode] = useState<WorkflowNode | null>(null)
+  const [editingCondition, setEditingCondition] = useState<WorkflowCondition | null>(null)
   const node3Ref = useRef<Node3PanelHandle>(null)
 
   useEffect(() => {
     if (activeNode) setEditingNode({ ...activeNode })
-  }, [activeNode])
+    if (activeNode?.nodeType === 'NODE0' && activeUnit?.condition) {
+      setEditingCondition({ ...activeUnit.condition })
+    }
+  }, [activeNode, activeUnit])
 
   if (!isOpen || !editingNode || !activeUnit) return null
 
@@ -59,6 +70,9 @@ export default function NodeSettingsPanel() {
       if (updatedDef) nodeToSave = { ...editingNode, node3: updatedDef }
     }
     if (nodeToSave && onUpdateNode) onUpdateNode(nodeToSave)
+    if (editingNode?.nodeType === 'NODE0' && editingCondition && onUpdateCondition) {
+      onUpdateCondition(editingCondition)
+    }
     closePanel()
   }
 
@@ -71,7 +85,17 @@ export default function NodeSettingsPanel() {
       <div className="fixed inset-0 bg-black/30 z-40" onClick={closePanel} />
 
       {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-96 bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl">
+      <div
+        className="fixed right-0 top-0 h-full bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl"
+        style={{ width }}
+      >
+        {/* Resize handle */}
+        <div
+          onMouseDown={onHandleMouseDown}
+          className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize z-10 group"
+        >
+          <div className="absolute inset-y-0 left-0 w-0.5 bg-transparent group-hover:bg-blue-500/50 transition-colors" />
+        </div>
         {/* Header */}
         <div
           className="flex items-center gap-3 px-4 py-3 border-b border-slate-700"
@@ -88,7 +112,13 @@ export default function NodeSettingsPanel() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
           {editingNode.nodeType === 'NODE0' && (
-            <Node0Panel definition={editingNode.node0} onChange={updateDefinition} />
+            <Node0Panel
+              definition={editingNode.node0}
+              onChange={updateDefinition}
+              condition={editingCondition ?? undefined}
+              onConditionChange={setEditingCondition}
+              unitId={activeUnit.id}
+            />
           )}
           {editingNode.nodeType === 'NODE1' && (
             <Node1Panel key={editingNode.id} definition={editingNode.node1} onChange={updateDefinition} />

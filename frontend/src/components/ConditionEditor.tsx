@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import axios from 'axios'
-import { WorkflowCondition, ConditionType, LogicalOp } from '../types/workflow'
+import { WorkflowCondition, ConditionType, LogicalOp, ProtocolType } from '../types/workflow'
 import { InputField } from './ui/FormField'
+
+// Protocols that carry no endpoint — ENDPOINT condition type is meaningless for these
+const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER']
 
 interface Props {
   condition: WorkflowCondition
   onChange: (condition: WorkflowCondition) => void
   unitId?: string
   showValidateButton?: boolean
+  protocol?: ProtocolType
 }
 
 interface ConflictInfo { existing: string; new: string; reason: string }
@@ -45,11 +49,17 @@ function LeafConditionEditor({
   condition,
   onChange,
   groupId,
+  protocol,
 }: {
   condition: WorkflowCondition
   onChange: (c: WorkflowCondition) => void
   groupId: string
+  protocol?: ProtocolType
 }) {
+  const noEndpoint = protocol != null && NO_ENDPOINT_PROTOCOLS.includes(protocol)
+  const visibleOptions = noEndpoint
+    ? CONDITION_TYPE_OPTIONS.filter((o) => o.value !== 'ENDPOINT')
+    : CONDITION_TYPE_OPTIONS
   const update = (partial: Partial<WorkflowCondition>) => {
     const updated = { ...condition, ...partial }
     updated.rawExpression = buildRawExpression(updated)
@@ -60,7 +70,7 @@ function LeafConditionEditor({
     <div className="space-y-3">
       {/* Type selector */}
       <div className="space-y-1.5">
-        {CONDITION_TYPE_OPTIONS.map((opt) => (
+        {visibleOptions.map((opt) => (
           <label
             key={opt.value}
             className={`flex items-start gap-3 p-2.5 rounded border cursor-pointer transition-colors ${
@@ -131,8 +141,11 @@ function LeafConditionEditor({
 
 // ── Default sub-condition ─────────────────────────────────────────────────────
 
-function makeDefaultLeaf(): WorkflowCondition {
-  return { type: 'ENDPOINT', endpointPattern: '' }
+function makeDefaultLeaf(protocol?: ProtocolType): WorkflowCondition {
+  const noEndpoint = protocol != null && NO_ENDPOINT_PROTOCOLS.includes(protocol)
+  return noEndpoint
+    ? { type: 'FIELD_VALUE', fieldKey: '', fieldValue: '' }
+    : { type: 'ENDPOINT', endpointPattern: '' }
 }
 
 // ── Recursive condition node (supports nesting) ───────────────────────────────
@@ -141,22 +154,24 @@ function ConditionNode({
   condition,
   onChange,
   groupId,
+  protocol,
 }: {
   condition: WorkflowCondition
   onChange: (c: WorkflowCondition) => void
   groupId: string
+  protocol?: ProtocolType
 }) {
   const isComposite = !!condition.logicalOp
 
   const switchToSimple = () => {
     if (isComposite && !window.confirm('복합 조건을 단순 조건으로 전환하면 하위 조건이 모두 삭제됩니다. 계속하시겠습니까?')) return
-    onChange({ type: 'ENDPOINT', endpointPattern: '', rawExpression: '' })
+    onChange({ ...makeDefaultLeaf(protocol), rawExpression: '' })
   }
 
   const switchToComposite = (op: LogicalOp) => {
     const subs: WorkflowCondition[] = condition.subConditions?.length
       ? condition.subConditions
-      : [makeDefaultLeaf(), makeDefaultLeaf()]
+      : [makeDefaultLeaf(protocol), makeDefaultLeaf(protocol)]
     const updated: WorkflowCondition = { logicalOp: op, subConditions: subs }
     updated.rawExpression = buildRawExpression(updated)
     onChange(updated)
@@ -177,7 +192,7 @@ function ConditionNode({
   }
 
   const addSubCondition = () => {
-    const subs = [...(condition.subConditions ?? []), makeDefaultLeaf()]
+    const subs = [...(condition.subConditions ?? []), makeDefaultLeaf(protocol)]
     const updated: WorkflowCondition = { ...condition, subConditions: subs }
     updated.rawExpression = buildRawExpression(updated)
     onChange(updated)
@@ -220,7 +235,7 @@ function ConditionNode({
 
       {/* Simple mode */}
       {!isComposite && (
-        <LeafConditionEditor condition={condition} onChange={onChange} groupId={groupId} />
+        <LeafConditionEditor condition={condition} onChange={onChange} groupId={groupId} protocol={protocol} />
       )}
 
       {/* Composite mode */}
@@ -266,6 +281,7 @@ function ConditionNode({
                 condition={sub}
                 onChange={(updated) => updateSubCondition(i, updated)}
                 groupId={`${groupId}-${i}`}
+                protocol={protocol}
               />
             </div>
           ))}
@@ -285,7 +301,7 @@ function ConditionNode({
 
 // ── Main ConditionEditor ──────────────────────────────────────────────────────
 
-export default function ConditionEditor({ condition, onChange, unitId, showValidateButton = true }: Props) {
+export default function ConditionEditor({ condition, onChange, unitId, showValidateButton = true, protocol }: Props) {
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
 
@@ -319,7 +335,7 @@ export default function ConditionEditor({ condition, onChange, unitId, showValid
 
       <div className="space-y-2">
         <label className="block text-xs font-medium text-slate-300">조건 모드</label>
-        <ConditionNode condition={condition} onChange={handleChange} groupId="root" />
+        <ConditionNode condition={condition} onChange={handleChange} groupId="root" protocol={protocol} />
       </div>
 
       {/* Expression preview */}

@@ -1,9 +1,13 @@
-import { Node0Definition, ProtocolType } from '../../types/workflow'
+import { Node0Definition, ProtocolType, WorkflowCondition } from '../../types/workflow'
 import { InputField, SelectField, CheckboxField } from '../ui/FormField'
+import ConditionEditor from '../ConditionEditor'
 
 interface Props {
   definition: Node0Definition | undefined
   onChange: (def: Node0Definition) => void
+  condition?: WorkflowCondition
+  onConditionChange?: (c: WorkflowCondition) => void
+  unitId?: string
 }
 
 const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
@@ -22,11 +26,14 @@ const DEFAULT: Node0Definition = {
   protocol: 'REST_SERVER',
   pingEnabled: false,
   pingIntervalSeconds: 30,
+  pongTimeoutSeconds: 10,
+  idleTimeoutSeconds: 60,
   reconnectEnabled: true,
   reconnectDelaySeconds: 5,
+  bidirectional: false,
 }
 
-export default function Node0Panel({ definition, onChange }: Props) {
+export default function Node0Panel({ definition, onChange, condition, onConditionChange, unitId }: Props) {
   const def = definition ?? DEFAULT
   const isClient = CLIENT_PROTOCOLS.includes(def.protocol)
   const hasPing = PING_PROTOCOLS.includes(def.protocol)
@@ -63,7 +70,7 @@ export default function Node0Panel({ definition, onChange }: Props) {
         </>
       )}
 
-      {(isClient || def.protocol === 'WEBSOCKET_SERVER') && (
+      {(def.protocol === 'WEBSOCKET_CLIENT' || def.protocol === 'WEBSOCKET_SERVER') && (
         <InputField
           label="경로"
           value={def.path ?? ''}
@@ -114,12 +121,21 @@ export default function Node0Panel({ definition, onChange }: Props) {
             hint="연결된 서버가 WebSocket ping/pong 프레임을 지원하는 경우에만 활성화하세요."
           />
           {def.pingEnabled ? (
-            <InputField
-              label="Ping 간격 (초)"
-              type="number"
-              value={def.pingIntervalSeconds}
-              onChange={(e) => update({ pingIntervalSeconds: Number(e.target.value) })}
-            />
+            <>
+              <InputField
+                label="Ping 간격 (초)"
+                type="number"
+                value={def.pingIntervalSeconds}
+                onChange={(e) => update({ pingIntervalSeconds: Number(e.target.value) })}
+              />
+              <InputField
+                label="Pong 응답 대기 (초)"
+                type="number"
+                value={def.pongTimeoutSeconds}
+                onChange={(e) => update({ pongTimeoutSeconds: Number(e.target.value) })}
+                hint="이 시간 내에 Pong이 없으면 좀비 연결로 판단하고 재연결합니다."
+              />
+            </>
           ) : (
             <div className="p-3 rounded border border-amber-500/40 bg-amber-500/10 text-xs text-amber-300 space-y-1">
               <div className="font-semibold">⚠️ Ping/Pong 비활성화 경고</div>
@@ -138,6 +154,15 @@ export default function Node0Panel({ definition, onChange }: Props) {
 
       {isClient && (
         <>
+          {def.protocol === 'TCP_CLIENT' && (
+            <InputField
+              label="수신 Idle 타임아웃 (초)"
+              type="number"
+              value={def.idleTimeoutSeconds}
+              onChange={(e) => update({ idleTimeoutSeconds: Number(e.target.value) })}
+              hint="이 시간(초) 동안 수신 데이터가 없으면 좀비 연결로 판단하고 재연결합니다. 0 = 비활성화"
+            />
+          )}
           <CheckboxField
             label="자동 재연결"
             checked={def.reconnectEnabled}
@@ -152,6 +177,22 @@ export default function Node0Panel({ definition, onChange }: Props) {
             />
           )}
         </>
+      )}
+
+      {condition && onConditionChange && (
+        <div className="pt-4 border-t border-slate-700/60 space-y-3">
+          <div className="text-xs font-semibold text-slate-300">워크플로우 구분 조건</div>
+          <p className="text-xs text-slate-500 -mt-1">
+            이 조건은 수신된 메세지를 이 워크플로우 단위로 라우팅할지 결정합니다.
+          </p>
+          <ConditionEditor
+            condition={condition}
+            onChange={onConditionChange}
+            unitId={unitId}
+            showValidateButton={true}
+            protocol={def.protocol}
+          />
+        </div>
       )}
     </div>
   )

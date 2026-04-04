@@ -29,6 +29,8 @@ export interface Node0Definition {
   groupId?: string
   pingEnabled: boolean
   pingIntervalSeconds: number
+  pongTimeoutSeconds: number
+  idleTimeoutSeconds: number
   reconnectEnabled: boolean
   reconnectDelaySeconds: number
   bidirectional: boolean

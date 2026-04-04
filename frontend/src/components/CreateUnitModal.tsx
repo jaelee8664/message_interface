@@ -1,9 +1,25 @@
 import { useState } from 'react'
-import { WorkflowCondition } from '../types/workflow'
+import { WorkflowCondition, ProtocolType } from '../types/workflow'
 import { useWorkflowStore } from '../store/workflowStore'
 import { createDefaultWorkflowUnit } from '../utils/defaultWorkflowUnit'
 import ConditionEditor from './ConditionEditor'
 import axios from 'axios'
+
+const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
+  { value: 'REST_SERVER',       label: 'REST 서버' },
+  { value: 'WEBSOCKET_SERVER',  label: 'WebSocket 서버' },
+  { value: 'WEBSOCKET_CLIENT',  label: 'WebSocket 클라이언트' },
+  { value: 'TCP_SERVER',        label: 'TCP 서버' },
+  { value: 'TCP_CLIENT',        label: 'TCP 클라이언트' },
+  { value: 'KAFKA_CONSUMER',    label: 'Kafka Consumer' },
+]
+
+const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER']
+
+const DEFAULT_CONDITION_FOR = (protocol: ProtocolType): WorkflowCondition =>
+  NO_ENDPOINT_PROTOCOLS.includes(protocol)
+    ? { type: 'FIELD_VALUE', fieldKey: '', fieldValue: '', rawExpression: '' }
+    : { type: 'ENDPOINT', endpointPattern: '', rawExpression: '' }
 
 interface Props {
   onClose: () => void
@@ -11,23 +27,24 @@ interface Props {
 
 type Step = 'info' | 'confirm'
 
-const DEFAULT_CONDITION: WorkflowCondition = {
-  type: 'ENDPOINT',
-  endpointPattern: '',
-  rawExpression: '',
-}
-
 export default function CreateUnitModal({ onClose }: Props) {
   const { saveUnit, selectUnit } = useWorkflowStore()
 
   const [step, setStep] = useState<Step>('info')
   const [name, setName] = useState('')
-  const [condition, setCondition] = useState<WorkflowCondition>(DEFAULT_CONDITION)
+  const [protocol, setProtocol] = useState<ProtocolType>('REST_SERVER')
+  const [condition, setCondition] = useState<WorkflowCondition>(DEFAULT_CONDITION_FOR('REST_SERVER'))
   const [modifiedBy, setModifiedBy] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  const handleProtocolChange = (p: ProtocolType) => {
+    setProtocol(p)
+    setCondition(DEFAULT_CONDITION_FOR(p))
+    setError(null)
+  }
 
   const isLeafFilled = (c: WorkflowCondition): boolean => {
     switch (c.type) {
@@ -80,7 +97,7 @@ export default function CreateUnitModal({ onClose }: Props) {
     setSaving(true)
 
     try {
-      const unit = createDefaultWorkflowUnit(name, condition)
+      const unit = createDefaultWorkflowUnit(name, condition, protocol)
       await saveUnit(unit, modifiedBy, password)
       selectUnit(unit.id)
       onClose()
@@ -129,6 +146,32 @@ export default function CreateUnitModal({ onClose }: Props) {
                   />
                 </div>
 
+                {/* Protocol selector */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-slate-300">수신 프로토콜 (NODE0)</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {PROTOCOL_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => handleProtocolChange(opt.value)}
+                        className={`py-2 px-3 text-xs rounded border text-left transition-colors ${
+                          protocol === opt.value
+                            ? 'border-blue-500 bg-blue-500/15 text-blue-300'
+                            : 'border-slate-600 bg-slate-800 text-slate-400 hover:border-slate-500'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {NO_ENDPOINT_PROTOCOLS.includes(protocol) && (
+                    <p className="text-xs text-amber-400/80 pt-1">
+                      이 프로토콜은 endpoint가 없으므로 ENDPOINT 조건을 사용할 수 없습니다.
+                    </p>
+                  )}
+                </div>
+
                 {/* Condition editor */}
                 <div>
                   <div className="text-xs font-medium text-slate-300 mb-3">구분 조건</div>
@@ -137,6 +180,7 @@ export default function CreateUnitModal({ onClose }: Props) {
                     onChange={setCondition}
                     unitId={undefined}
                     showValidateButton={false}
+                    protocol={protocol}
                   />
                 </div>
               </>
@@ -155,9 +199,11 @@ export default function CreateUnitModal({ onClose }: Props) {
                     <div className="font-mono text-sm text-blue-300">{condition.rawExpression}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-400 mb-1">생성될 노드</div>
+                    <div className="text-xs text-slate-400 mb-1">수신 프로토콜</div>
                     <div className="flex gap-1.5 flex-wrap">
-                      <span className="px-2 py-1 rounded text-xs bg-blue-900/50 border border-blue-700/50 text-blue-300">NODE0 수신 프로토콜</span>
+                      <span className="px-2 py-1 rounded text-xs bg-blue-900/50 border border-blue-700/50 text-blue-300">
+                        {PROTOCOL_OPTIONS.find((o) => o.value === protocol)?.label ?? protocol}
+                      </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1.5">
                       생성 후 캔버스에서 <strong className="text-slate-400">+ 노드 추가</strong> 버튼으로 NODE1~NODE5를 자유롭게 추가하고 엣지로 연결하세요.

@@ -39,13 +39,25 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
   const needsTarget = ['REST_SERVER', 'WEBSOCKET_CLIENT', 'TCP_CLIENT'].includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_PUBLISHER'
   const isWsClient = def.protocol === 'WEBSOCKET_CLIENT'
+  const isTcpClient = def.protocol === 'TCP_CLIENT'
   const isSessionProtocol = def.protocol === 'WEBSOCKET_SERVER' || def.protocol === 'TCP_SERVER'
+  const needsReconnect = isWsClient || isTcpClient
   const hasRetry = (def.retryCount ?? 0) > 0
 
-  const replyToSelf = isSessionProtocol && def.targetPath === unitId
+  // WebSocket_SERVER: 세션 키 = 유닛 ID (고정 경로)
+  // TCP_SERVER: 세션 키 = Netty 채널 ID (런타임 동적값) → "self"는 null로 표현, 백엔드가 context.metadata["channelId"] 사용
+  const replyToSelf = def.protocol === 'WEBSOCKET_SERVER'
+    ? def.targetPath === unitId
+    : def.protocol === 'TCP_SERVER'
+      ? !def.targetPath
+      : false
 
   const handleReplyToSelfToggle = (checked: boolean) => {
-    update({ targetPath: checked ? unitId : '' })
+    if (def.protocol === 'TCP_SERVER') {
+      update({ targetPath: checked ? null : '' })
+    } else {
+      update({ targetPath: checked ? unitId : '' })
+    }
   }
 
   return (
@@ -104,12 +116,14 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
             onChange={(e) => update({ targetPort: Number(e.target.value) })}
             placeholder="예: 8081"
           />
-          <InputField
-            label="대상 경로"
-            value={def.targetPath ?? ''}
-            onChange={(e) => update({ targetPath: e.target.value })}
-            placeholder="예: /orders"
-          />
+          {!isTcpClient && (
+            <InputField
+              label="대상 경로"
+              value={def.targetPath ?? ''}
+              onChange={(e) => update({ targetPath: e.target.value })}
+              placeholder="예: /orders"
+            />
+          )}
         </>
       )}
 
@@ -148,7 +162,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
         placeholder="예: 5000"
       />
 
-      {isWsClient && (
+      {needsReconnect && (
         <>
           <SelectField
             label="재연결"
