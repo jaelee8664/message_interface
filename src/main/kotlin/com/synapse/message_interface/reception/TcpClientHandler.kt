@@ -4,12 +4,17 @@ import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.domain.node.Node0Definition
 import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.engine.WorkflowDispatcher
+import io.netty.channel.ChannelOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
+import reactor.core.publisher.Sinks
 import reactor.netty.Connection
 import reactor.netty.tcp.TcpClient
 
@@ -20,8 +25,9 @@ class TcpClientHandler(
     private val connectionRegistry: TcpConnectionRegistry
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile private var running = true
+    @Volatile private var activeConnection: Connection? = null
 
     fun start() {
         scope.launch { connectWithRetry() }
@@ -29,30 +35,34 @@ class TcpClientHandler(
 
     fun stop() {
         running = false
+        activeConnection?.dispose()
+        scope.cancel()
     }
 
     private suspend fun connectWithRetry() {
         while (running) {
             try {
+                // 연결별 outbound sink — persistent Flux로 구동해야 outboundDone 마킹을 막을 수 있음
+                val outboundSink = Sinks.many().unicast().onBackpressureBuffer<ByteArray>()
+
                 val connection: Connection = TcpClient.create()
                     .host(definition.host ?: "localhost")
                     .port(definition.port ?: 9091)
+                    .option(ChannelOption.SO_KEEPALIVE, true)
                     .connectNow()
 
+                activeConnection = connection
                 connectionRegistry.register(unit.id, connection)
                 log.info("[TCP Client] 연결 성공: host=${definition.host}, port=${definition.port}")
 
-                val pingJob = if (definition.pingEnabled) {
-                    scope.launch {
-                        while (running && !connection.isDisposed) {
-                            delay(definition.pingIntervalSeconds * 1000L)
-                            connection.outbound()
-                                .sendByteArray(reactor.core.publisher.Mono.just("ping".toByteArray()))
-                                .then()
-                                .subscribe()
-                        }
-                    }
-                } else null
+                // persistent outbound — sink가 완료될 때까지 outboundDone이 되지 않음
+                connection.outbound()
+                    .sendByteArray(outboundSink.asFlux())
+                    .then()
+                    .subscribe(
+                        null,
+                        { e -> log.warn("[TCP Client] 송신 오류: ${e.message}") }
+                    )
 
                 connection.inbound().receive()
                     .map { buf -> ByteArray(buf.readableBytes()).also { buf.readBytes(it) } }
@@ -66,14 +76,14 @@ class TcpClientHandler(
                         }
                     }
                     .doFinally {
-                        pingJob?.cancel()
-                        connectionRegistry.remove(unit.id)
+                        outboundSink.tryEmitComplete()
+                        activeConnection = null
+                        connectionRegistry.removeIfSame(unit.id, connection)
                     }
                     .then()
-                    .block()
+                    .awaitFirstOrNull()
             } catch (e: Exception) {
-                log.error("[TCP Client] 연결 실패: ${e.message}")
-                connectionRegistry.remove(unit.id)
+                if (running) log.error("[TCP Client] 연결 실패: ${e.message}")
             }
 
             if (running && definition.reconnectEnabled) {

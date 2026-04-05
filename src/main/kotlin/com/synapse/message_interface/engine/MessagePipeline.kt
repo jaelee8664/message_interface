@@ -155,7 +155,7 @@ class MessagePipeline(
             NodeType.NODE4 -> {
                 if (node.node4 != null) {
                     try {
-                        val responseBytes = node4Executor.execute(state.currentMap, node.node4)
+                        val responseBytes = node4Executor.execute(state.currentMap, node.node4, context)
                         logSuccess(context, unit.id, node.nodeType, state.currentMap)
                         if (responseBytes != null) {
                             state.rawBytes = responseBytes

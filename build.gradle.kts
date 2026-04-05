@@ -32,6 +32,8 @@ dependencies {
 	implementation("org.graalvm.polyglot:js-community:24.1.2")
 	implementation("tools.jackson.dataformat:jackson-dataformat-xml")
 	implementation("io.projectreactor.netty:reactor-netty-core")
+	implementation("org.springframework.boot:spring-boot-reactor-netty")
+	implementation("io.netty:netty-codec-xml:4.2.10.Final")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")

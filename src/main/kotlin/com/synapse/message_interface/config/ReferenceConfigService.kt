@@ -51,4 +51,11 @@ class ReferenceConfigService(private val resourceLoader: ResourceLoader) {
             ?: System.getenv("WORKFLOW_EDIT_PASSWORD")
             ?: "admin"
     }
+
+    @Suppress("UNCHECKED_CAST")
+    fun getTcpServerIdleTimeoutSeconds(): Int {
+        val tcp = getConfig()["tcp"] as? Map<String, Any?> ?: return 60
+        val server = tcp["server"] as? Map<String, Any?> ?: return 60
+        return (server["idleTimeoutSeconds"] as? Int) ?: 60
+    }
 }

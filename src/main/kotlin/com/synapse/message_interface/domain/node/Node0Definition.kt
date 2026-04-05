@@ -11,6 +11,7 @@ data class Node0Definition(
     val groupId: String? = null,      // for Kafka consumer
     val pingEnabled: Boolean = false,
     val pingIntervalSeconds: Int = 30,
+    val pongTimeoutSeconds: Int = 10,
     val reconnectEnabled: Boolean = true,
     val reconnectDelaySeconds: Int = 5,
 )

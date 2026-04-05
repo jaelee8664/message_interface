@@ -13,6 +13,7 @@ grpc:
 tcp:
   server:
     port: 9091
+    idleTimeoutSeconds: 60   # 마지막 수신 후 이 시간(초) 동안 데이터가 없으면 연결 종료 (0 = 비활성화)
 
 log:
   retentionDays: 7

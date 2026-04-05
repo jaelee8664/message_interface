@@ -13,9 +13,6 @@ spring:
       - org.springframework.boot.data.mongodb.autoconfigure.DataMongoRepositoriesAutoConfiguration
       - org.springframework.boot.data.mongodb.autoconfigure.DataMongoReactiveRepositoriesAutoConfiguration
       - org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration
-  grpc:
-    server:
-      port: 9091
 
 server:
   port: 8080

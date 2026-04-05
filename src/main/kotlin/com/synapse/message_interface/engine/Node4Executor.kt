@@ -4,9 +4,11 @@ import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.domain.MessageFormat
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.node.Node4Definition
+import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.parser.MessageParserRegistry
 import com.synapse.message_interface.reception.TcpClientConnectionPool
 import com.synapse.message_interface.reception.TcpConnectionRegistry
+import com.synapse.message_interface.reception.TcpServerSessionRegistry
 import com.synapse.message_interface.reception.WebSocketClientRegistry
 import com.synapse.message_interface.reception.WebSocketSessionRegistry
 import com.synapse.message_interface.sender.KafkaProducerPool
@@ -31,6 +33,7 @@ class Node4Executor(
     private val webSocketSessionRegistry: WebSocketSessionRegistry,
     private val webSocketClientRegistry: WebSocketClientRegistry,
     private val tcpConnectionRegistry: TcpConnectionRegistry,
+    private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val referenceConfigService: ReferenceConfigService,
     private val kafkaProducerPool: KafkaProducerPool
@@ -42,15 +45,15 @@ class Node4Executor(
      * Returns response bytes if the protocol provides a response, otherwise null.
      * Applies timeout and retry as configured in [definition].
      */
-    suspend fun execute(data: Map<String, Any?>, definition: Node4Definition): ByteArray? {
+    suspend fun execute(data: Map<String, Any?>, definition: Node4Definition, context: MessageContext): ByteArray? {
         val serialized = parserRegistry.getParser(definition.messageFormat).serialize(data)
 
         return withRetry(definition.retryCount, definition.retryDelaySeconds, definition.timeoutMs) {
-            sendByProtocol(serialized, definition)
+            sendByProtocol(serialized, definition, context)
         }
     }
 
-    private suspend fun sendByProtocol(serialized: ByteArray, definition: Node4Definition): ByteArray? =
+    private suspend fun sendByProtocol(serialized: ByteArray, definition: Node4Definition, context: MessageContext): ByteArray? =
         when (definition.protocol) {
             ProtocolType.REST_SERVER -> sendViaRest(serialized, definition)
 
@@ -67,7 +70,7 @@ class Node4Executor(
                 null
             }
             ProtocolType.TCP_SERVER -> {
-                sendViaTcpToExisting(serialized, definition)
+                sendViaTcpToExisting(serialized, definition, context)
                 null
             }
             ProtocolType.KAFKA_CONSUMER -> {
@@ -182,14 +185,17 @@ class Node4Executor(
     }
 
     /**
-     * Send to an already-connected TCP connection (server-side).
+     * Send to an already-connected TCP server session (channelId-based).
+     * channelId 우선순위:
+     *  1. definition.targetPath에 명시된 값 (다른 특정 세션에 보낼 때)
+     *  2. context.metadata["channelId"] — 수신한 요청과 동일한 세션에 응답할 때
      */
-    private fun sendViaTcpToExisting(data: ByteArray, definition: Node4Definition) {
-        val key = definition.targetPath ?: return
+    private fun sendViaTcpToExisting(data: ByteArray, definition: Node4Definition, context: MessageContext) {
+        val channelId = definition.targetPath ?: context.metadata["channelId"] ?: return
         try {
-            tcpConnectionRegistry.send(key, data)
+            tcpServerSessionRegistry.send(channelId, data)
         } catch (e: Exception) {
-            log.warn("[Node4] TCP 연결 송신 실패 (key=$key): ${e.message}")
+            log.warn("[Node4] TCP Server 세션 송신 실패 (channelId=$channelId): ${e.message}")
         }
     }
 

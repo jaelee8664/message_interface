@@ -30,7 +30,8 @@ class WorkflowDispatcher(
             emptyMap()
         }
 
-        val (exactEndpointIndex, wildcardEndpointUnits, compositeExactEndpointIndex, compositeWildcardEndpointUnits, noEndpointUnits) = registry.getIndexed()
+        val (exactEndpointIndex, wildcardEndpointUnits, compositeExactEndpointIndex, compositeWildcardEndpointUnits, noEndpointUnits) =
+            registry.getIndexedByProtocol(context.protocol) ?: registry.getIndexed()
 
         val unit =
             // 1. exact ENDPOINT → O(1)

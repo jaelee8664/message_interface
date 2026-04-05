@@ -6,13 +6,17 @@ import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.engine.WorkflowDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.core.publisher.Mono
 import java.net.URI
+import java.util.concurrent.atomic.AtomicLong
 
 class WebSocketClientHandler(
     private val unit: WorkflowUnit,
@@ -22,7 +26,7 @@ class WebSocketClientHandler(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val client = ReactorNettyWebSocketClient()
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile private var running = true
 
     fun start() {
@@ -31,6 +35,7 @@ class WebSocketClientHandler(
 
     fun stop() {
         running = false
+        scope.cancel()
     }
 
     private suspend fun connectWithRetry() {
@@ -43,21 +48,36 @@ class WebSocketClientHandler(
                     sessionRegistry.register(unit.id, session)
                     log.info("[WebSocket Client] 연결 성공: unitId=${unit.id}")
 
+                    val lastPongTime = AtomicLong(System.currentTimeMillis())
+
                     val pingJob = if (definition.pingEnabled) {
                         scope.launch {
                             while (running && session.isOpen) {
                                 delay(definition.pingIntervalSeconds * 1000L)
+                                if (!session.isOpen) break
+
+                                val pingSentAt = System.currentTimeMillis()
                                 session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
                                     .doOnError { e ->
-                                        log.warn("[WebSocket Client] Ping 실패, 연결 종료: ${e.message}")
+                                        log.warn("[WebSocket Client] Ping 전송 실패: ${e.message}")
                                         session.close().subscribe()
                                     }
                                     .subscribe()
+
+                                delay(definition.pongTimeoutSeconds * 1000L)
+                                if (lastPongTime.get() < pingSentAt) {
+                                    log.warn("[WebSocket Client] Pong 미응답 (좀비 연결 감지), 강제 종료: unitId=${unit.id}")
+                                    session.close().subscribe()
+                                    break
+                                }
                             }
                         }
                     } else null
 
                     session.receive()
+                        .doOnNext { msg ->
+                            if (msg.type.name.contains("PONG")) lastPongTime.set(System.currentTimeMillis())
+                        }
                         .filter { !it.type.name.contains("PONG") }
                         .flatMap { message ->
                             val buf = message.payload
@@ -79,7 +99,7 @@ class WebSocketClientHandler(
                             sessionRegistry.remove(unit.id)
                         }
                         .then()
-                }.block()
+                }.awaitFirstOrNull()
             } catch (e: Exception) {
                 log.error("[WebSocket Client] 연결 실패: ${e.message}")
             }

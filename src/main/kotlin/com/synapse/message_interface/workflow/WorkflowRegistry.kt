@@ -2,6 +2,7 @@ package com.synapse.message_interface.workflow
 
 import com.synapse.message_interface.domain.ConditionType
 import com.synapse.message_interface.domain.LogicalOp
+import com.synapse.message_interface.domain.NodeType
 import com.synapse.message_interface.domain.WorkflowCondition
 import com.synapse.message_interface.domain.WorkflowTree
 import com.synapse.message_interface.domain.WorkflowUnit
@@ -41,6 +42,9 @@ class WorkflowRegistry {
     /** units with no indexable endpoint (FIELD_VALUE/CONTAINS_KEY leaves, OR composites, etc.) */
     @Volatile private var noEndpointUnits: List<WorkflowUnit> = emptyList()
 
+    /** protocol name (ProtocolType.name) → DispatchIndex for that protocol's units only */
+    @Volatile private var protocolDispatchIndex: Map<String, DispatchIndex> = emptyMap()
+
     fun getAll(): List<WorkflowUnit> = tree.toList()
 
     fun getIndexed(): DispatchIndex = DispatchIndex(
@@ -50,6 +54,9 @@ class WorkflowRegistry {
         compositeWildcardEndpointUnits,
         noEndpointUnits
     )
+
+    /** Returns a protocol-scoped DispatchIndex, or null if no units exist for that protocol. */
+    fun getIndexedByProtocol(protocol: String): DispatchIndex? = protocolDispatchIndex[protocol]
 
     fun load(workflowTree: WorkflowTree) {
         tree.clear()
@@ -89,22 +96,14 @@ class WorkflowRegistry {
         return emptySet()
     }
 
-    private fun rebuildIndex() {
-        val all = tree.toList()
-
-        idIndex.clear()
-        all.forEach { idIndex[it.id] = it }
-
-        val (endpointOnly, others) = all.partition {
+    private fun buildDispatchIndex(units: List<WorkflowUnit>): DispatchIndex {
+        val (endpointOnly, others) = units.partition {
             it.condition.type == ConditionType.ENDPOINT && it.condition.logicalOp == null
         }
 
         val (exact, wildcard) = endpointOnly.partition { unit ->
             unit.condition.endpointPattern?.none { it in WILDCARD_CHARS } == true
         }
-
-        exactEndpointIndex = exact.associate { it.condition.endpointPattern!! to it }
-        wildcardEndpointUnits = wildcard.sortedByDescending { it.condition.endpointPattern?.length ?: 0 }
 
         val compositeExact = mutableMapOf<String, MutableList<WorkflowUnit>>()
         val compositeWildcard = mutableListOf<WorkflowUnit>()
@@ -121,8 +120,34 @@ class WorkflowRegistry {
             }
         }
 
-        compositeExactEndpointIndex = compositeExact
-        compositeWildcardEndpointUnits = compositeWildcard
-        noEndpointUnits = noEndpoint
+        return DispatchIndex(
+            exactEndpointIndex = exact.associate { it.condition.endpointPattern!! to it },
+            wildcardEndpointUnits = wildcard.sortedByDescending { it.condition.endpointPattern?.length ?: 0 },
+            compositeExactEndpointIndex = compositeExact,
+            compositeWildcardEndpointUnits = compositeWildcard,
+            noEndpointUnits = noEndpoint
+        )
+    }
+
+    private fun rebuildIndex() {
+        val all = tree.toList()
+
+        idIndex.clear()
+        all.forEach { idIndex[it.id] = it }
+
+        val globalIndex = buildDispatchIndex(all)
+        exactEndpointIndex = globalIndex.exactEndpointIndex
+        wildcardEndpointUnits = globalIndex.wildcardEndpointUnits
+        compositeExactEndpointIndex = globalIndex.compositeExactEndpointIndex
+        compositeWildcardEndpointUnits = globalIndex.compositeWildcardEndpointUnits
+        noEndpointUnits = globalIndex.noEndpointUnits
+
+        protocolDispatchIndex = all
+            .groupBy { unit ->
+                unit.nodes.find { it.nodeType == NodeType.NODE0 }?.node0?.protocol?.name
+            }
+            .filterKeys { it != null }
+            .mapKeys { it.key!! }
+            .mapValues { (_, units) -> buildDispatchIndex(units) }
     }
 }

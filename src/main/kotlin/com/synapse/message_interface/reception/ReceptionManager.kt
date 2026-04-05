@@ -63,9 +63,8 @@ class ReceptionManager(
                 log.info("[ReceptionManager] WebSocket Client 시작: unitId=${unit.id}")
             }
             ProtocolType.TCP_SERVER -> {
-                val handler = TcpServerHandler(unit, node0.port ?: 9091, dispatcher, connectionRegistry)
-                handler.start()
-                activeHandlers[unit.id] = handler
+                // Port unification으로 8080에서 HTTP와 함께 처리됨 (PortUnificationCustomizer)
+                log.info("[ReceptionManager] TCP Server 등록 완료: unitId=${unit.id}")
             }
             ProtocolType.TCP_CLIENT -> {
                 val handler = TcpClientHandler(unit, node0, dispatcher, connectionRegistry)
@@ -90,7 +89,6 @@ class ReceptionManager(
     fun stopHandlers(unitId: String) {
         when (val handler = activeHandlers.remove(unitId)) {
             is WebSocketClientHandler -> handler.stop()
-            is TcpServerHandler -> handler.stop()
             is TcpClientHandler -> handler.stop()
             is KafkaConsumerHandler -> handler.stop()
         }
