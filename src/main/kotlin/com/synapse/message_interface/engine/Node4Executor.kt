@@ -1,6 +1,5 @@
 package com.synapse.message_interface.engine
 
-import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.domain.MessageFormat
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.node.Node4Definition
@@ -35,7 +34,6 @@ class Node4Executor(
     private val tcpConnectionRegistry: TcpConnectionRegistry,
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
-    private val referenceConfigService: ReferenceConfigService,
     private val kafkaProducerPool: KafkaProducerPool
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -55,7 +53,7 @@ class Node4Executor(
 
     private suspend fun sendByProtocol(serialized: ByteArray, definition: Node4Definition, context: MessageContext): ByteArray? =
         when (definition.protocol) {
-            ProtocolType.REST_SERVER -> sendViaRest(serialized, definition)
+            ProtocolType.REST_CLIENT -> sendViaRest(serialized, definition)
 
             ProtocolType.WEBSOCKET_CLIENT -> {
                 sendViaWebSocketClient(serialized, definition)
@@ -75,6 +73,9 @@ class Node4Executor(
             }
             ProtocolType.KAFKA_CONSUMER -> {
                 throw Node4SendException("Kafka Consumer는 Node4 송신 프로토콜로 사용할 수 없습니다.")
+            }
+            ProtocolType.REST_SERVER -> {
+                throw Node4SendException("REST Server는 Node4 송신 프로토콜로 사용할 수 없습니다.")
             }
             ProtocolType.KAFKA_PUBLISHER -> {
                 sendViaKafkaPublisher(serialized, definition)
@@ -203,7 +204,7 @@ class Node4Executor(
 
     private suspend fun sendViaKafkaPublisher(data: ByteArray, definition: Node4Definition) {
         val topic = definition.targetTopic ?: throw Node4SendException("Kafka topic이 설정되지 않았습니다.")
-        val bootstrapServers = referenceConfigService.getKafkaBootstrapServers()
+        val bootstrapServers = definition.bootstrapServers ?: "localhost:9092"
         val producer = kafkaProducerPool.getOrCreate(bootstrapServers)
         try {
             kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->

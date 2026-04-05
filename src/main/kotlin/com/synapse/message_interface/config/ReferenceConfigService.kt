@@ -39,12 +39,6 @@ class ReferenceConfigService(private val resourceLoader: ResourceLoader) {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun getKafkaBootstrapServers(): String {
-        val kafka = getConfig()["kafka"] as? Map<String, Any?> ?: return "localhost:9092"
-        return kafka["bootstrapServers"] as? String ?: "localhost:9092"
-    }
-
-    @Suppress("UNCHECKED_CAST")
     fun getEditPassword(): String {
         val workflow = getConfig()["workflow"] as? Map<*, *>
         return workflow?.get("editPassword") as? String
@@ -52,10 +46,4 @@ class ReferenceConfigService(private val resourceLoader: ResourceLoader) {
             ?: "admin"
     }
 
-    @Suppress("UNCHECKED_CAST")
-    fun getTcpServerIdleTimeoutSeconds(): Int {
-        val tcp = getConfig()["tcp"] as? Map<String, Any?> ?: return 60
-        val server = tcp["server"] as? Map<String, Any?> ?: return 60
-        return (server["idleTimeoutSeconds"] as? Int) ?: 60
-    }
 }

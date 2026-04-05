@@ -39,9 +39,6 @@ export default function ReferencePage() {
       </div>
 
       <div className="space-y-4">
-        {renderSection('Kafka', 'kafka', config, setConfig)}
-        {renderSection('gRPC', 'grpc', config, setConfig)}
-        {renderSection('TCP', 'tcp', config, setConfig)}
         {renderSection('로그', 'log', config, setConfig)}
         {renderSection('히스토리', 'history', config, setConfig)}
       </div>

@@ -20,7 +20,7 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
 ]
 
 const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
-const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT']
+const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'WEBSOCKET_SERVER']
 
 const DEFAULT: Node0Definition = {
   protocol: 'REST_SERVER',
@@ -38,6 +38,7 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
   const hasPing = PING_PROTOCOLS.includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_CONSUMER'
   const isRestServer = def.protocol === 'REST_SERVER'
+  const isTcpServer = def.protocol === 'TCP_SERVER'
   const restPathReserved = isRestServer && (def.path?.startsWith('/synapse/') ?? false)
 
   const update = (partial: Partial<Node0Definition>) => onChange({ ...def, ...partial })
@@ -78,6 +79,17 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
         />
       )}
 
+      {isTcpServer && (
+        <InputField
+          label="유휴 연결 타임아웃 (초)"
+          type="number"
+          value={def.tcpIdleTimeoutSeconds ?? ''}
+          onChange={(e) => update({ tcpIdleTimeoutSeconds: e.target.value === '' ? undefined : Number(e.target.value) })}
+          placeholder="기본값 60, 0 = 비활성화"
+          hint="마지막 수신 후 이 시간 동안 데이터가 없으면 연결을 종료합니다."
+        />
+      )}
+
       {isRestServer && (
         <>
           <InputField
@@ -96,6 +108,13 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
 
       {isKafka && (
         <>
+          <InputField
+            label="Bootstrap Servers"
+            value={def.bootstrapServers ?? ''}
+            onChange={(e) => update({ bootstrapServers: e.target.value })}
+            placeholder="예: localhost:9092"
+            hint="분산 서버 시: broker1:9092,broker2:9092,broker3:9092"
+          />
           <InputField
             label="Topic"
             value={def.topic ?? ''}
@@ -117,7 +136,11 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
             label="Ping/Pong 활성화"
             checked={def.pingEnabled}
             onChange={(v) => update({ pingEnabled: v })}
-            hint="연결된 서버가 WebSocket ping/pong 프레임을 지원하는 경우에만 활성화하세요."
+            hint={
+              def.protocol === 'WEBSOCKET_SERVER'
+                ? "주기적으로 Ping을 전송해 연결된 클라이언트의 좀비 연결을 감지하고 세션을 정리합니다."
+                : "주기적으로 Ping을 전송해 서버 연결 상태를 확인하고 끊어진 경우 재연결합니다."
+            }
           />
           {def.pingEnabled ? (
             <>
@@ -132,19 +155,20 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
                 type="number"
                 value={def.pongTimeoutSeconds}
                 onChange={(e) => update({ pongTimeoutSeconds: Number(e.target.value) })}
-                hint="이 시간 내에 Pong이 없으면 좀비 연결로 판단하고 재연결합니다."
+                hint={
+                  def.protocol === 'WEBSOCKET_SERVER'
+                    ? "이 시간 내에 Pong이 없으면 좀비 연결로 판단하고 세션을 종료합니다."
+                    : "이 시간 내에 Pong이 없으면 좀비 연결로 판단하고 재연결합니다."
+                }
               />
             </>
           ) : (
             <div className="p-3 rounded border border-amber-500/40 bg-amber-500/10 text-xs text-amber-300 space-y-1">
               <div className="font-semibold">⚠️ Ping/Pong 비활성화 경고</div>
               <div className="text-amber-400/80 leading-relaxed">
-                Ping/Pong이 비활성화된 상태입니다. 연결 끊김 감지가 불가능하므로 자동 재연결이 지연될 수 있습니다.
-              </div>
-              <div className="text-amber-400/80 leading-relaxed">
-                대상 서버가 WebSocket ping/pong 프레임({' '}
-                <span className="font-mono">opcode 0x9/0xA</span>)을 지원하지 않는 경우에만 비활성화하세요.
-                지원 여부를 확인하려면 서버 문서를 참고하거나 운영자에게 문의하세요.
+                {def.protocol === 'WEBSOCKET_SERVER'
+                  ? 'Ping/Pong이 비활성화된 상태입니다. 클라이언트가 비정상 종료되어도 감지할 수 없어 좀비 세션이 남을 수 있습니다.'
+                  : 'Ping/Pong이 비활성화된 상태입니다. 연결 끊김 감지가 불가능하므로 자동 재연결이 지연될 수 있습니다.'}
               </div>
             </div>
           )}

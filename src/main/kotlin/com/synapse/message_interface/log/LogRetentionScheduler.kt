@@ -1,5 +1,6 @@
 package com.synapse.message_interface.log
 
+import com.synapse.message_interface.deadletter.DeadLetterStore
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.io.File
@@ -7,7 +8,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Component
-class LogRetentionScheduler {
+class LogRetentionScheduler(private val deadLetterStore: DeadLetterStore) {
     companion object {
         const val LOG_DIR = "message-logs"
         const val MAX_SIZE_BYTES = 10L * 1024 * 1024 * 1024  // 10GB
@@ -45,5 +46,7 @@ class LogRetentionScheduler {
             totalSize -= oldest.length()
             oldest.delete()
         }
+
+        deadLetterStore.runRetention()
     }
 }

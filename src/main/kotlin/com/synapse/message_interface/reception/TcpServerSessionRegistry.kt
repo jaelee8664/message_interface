@@ -29,4 +29,12 @@ class TcpServerSessionRegistry {
     fun getAll(): Map<String, ChannelHandlerContext> = sessions.toMap()
 
     fun isActive(channelId: String) = sessions[channelId]?.channel()?.isActive == true
+
+    /** Returns the remote address of the connected client, e.g. "/192.168.0.10:54321". */
+    fun getRemoteAddress(channelId: String): String? =
+        sessions[channelId]?.channel()?.remoteAddress()?.toString()
+
+    fun closeAll() {
+        sessions.values.forEach { ctx -> ctx.close() }
+    }
 }

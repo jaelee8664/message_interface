@@ -5,5 +5,6 @@ enum class ProtocolType {
     TCP_SERVER, TCP_CLIENT,
     KAFKA_CONSUMER,
     KAFKA_PUBLISHER,
-    REST_SERVER
+    REST_SERVER,   // NODE0 전용: HTTP 서버로 요청 수신
+    REST_CLIENT    // NODE4 전용: HTTP 클라이언트로 외부에 요청 송신
 }

@@ -14,7 +14,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
-import reactor.core.publisher.Sinks
 import reactor.netty.Connection
 import reactor.netty.tcp.TcpClient
 
@@ -42,9 +41,6 @@ class TcpClientHandler(
     private suspend fun connectWithRetry() {
         while (running) {
             try {
-                // 연결별 outbound sink — persistent Flux로 구동해야 outboundDone 마킹을 막을 수 있음
-                val outboundSink = Sinks.many().unicast().onBackpressureBuffer<ByteArray>()
-
                 val connection: Connection = TcpClient.create()
                     .host(definition.host ?: "localhost")
                     .port(definition.port ?: 9091)
@@ -54,15 +50,6 @@ class TcpClientHandler(
                 activeConnection = connection
                 connectionRegistry.register(unit.id, connection)
                 log.info("[TCP Client] 연결 성공: host=${definition.host}, port=${definition.port}")
-
-                // persistent outbound — sink가 완료될 때까지 outboundDone이 되지 않음
-                connection.outbound()
-                    .sendByteArray(outboundSink.asFlux())
-                    .then()
-                    .subscribe(
-                        null,
-                        { e -> log.warn("[TCP Client] 송신 오류: ${e.message}") }
-                    )
 
                 connection.inbound().receive()
                     .map { buf -> ByteArray(buf.readableBytes()).also { buf.readBytes(it) } }
@@ -76,7 +63,6 @@ class TcpClientHandler(
                         }
                     }
                     .doFinally {
-                        outboundSink.tryEmitComplete()
                         activeConnection = null
                         connectionRegistry.removeIfSame(unit.id, connection)
                     }

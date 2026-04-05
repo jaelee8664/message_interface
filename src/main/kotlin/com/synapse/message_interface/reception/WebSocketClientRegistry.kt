@@ -113,6 +113,8 @@ class WebSocketClientRegistry {
         session.send(Mono.just(msg)).subscribe()
     }
 
+    fun getAll(): Map<String, Boolean> = sessions.mapValues { (_, s) -> s.isOpen }
+
     fun isConnected(key: String) = sessions[key]?.isOpen == true
 
     fun remove(key: String) {

@@ -3,7 +3,7 @@ export type ProtocolType =
   | 'WEBSOCKET_SERVER' | 'WEBSOCKET_CLIENT'
   | 'TCP_SERVER' | 'TCP_CLIENT'
   | 'KAFKA_CONSUMER' | 'KAFKA_PUBLISHER'
-  | 'REST_SERVER'
+  | 'REST_SERVER' | 'REST_CLIENT'
 export type FieldType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOLEAN' | 'LIST' | 'MAP' | 'CUSTOM'
 export type NodeType = 'NODE0' | 'NODE1' | 'NODE2' | 'NODE3' | 'NODE4' | 'NODE5'
 export type ConditionType = 'ENDPOINT' | 'FIELD_VALUE' | 'CONTAINS_KEY'
@@ -27,12 +27,14 @@ export interface Node0Definition {
   path?: string
   topic?: string
   groupId?: string
+  bootstrapServers?: string
   pingEnabled: boolean
   pingIntervalSeconds: number
   pongTimeoutSeconds: number
   reconnectEnabled: boolean
   reconnectDelaySeconds: number
   bidirectional: boolean
+  tcpIdleTimeoutSeconds?: number
 }
 
 export interface Node1Definition {
@@ -85,6 +87,7 @@ export interface Node4Definition {
   targetPort?: number
   targetPath?: string
   targetTopic?: string
+  bootstrapServers?: string
   retryCount?: number
   retryDelaySeconds?: number
   timeoutMs?: number

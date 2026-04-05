@@ -13,7 +13,7 @@ const FORMAT_OPTIONS: { value: MessageFormat; label: string }[] = [
 ]
 
 const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
-  { value: 'REST_SERVER', label: 'REST' },
+  { value: 'REST_CLIENT', label: 'REST 클라이언트' },
   { value: 'WEBSOCKET_CLIENT', label: 'WebSocket 클라이언트' },
   { value: 'WEBSOCKET_SERVER', label: 'WebSocket 서버 (세션에 송신)' },
   { value: 'TCP_CLIENT', label: 'TCP 클라이언트' },
@@ -23,7 +23,7 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
 
 const DEFAULT_DEF: Node4Definition = {
   messageFormat: 'JSON',
-  protocol: 'REST_SERVER',
+  protocol: 'REST_CLIENT',
   retryCount: 0,
   retryDelaySeconds: 0,
   timeoutMs: 5000,
@@ -36,7 +36,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
 
   const update = (partial: Partial<Node4Definition>) => onChange({ ...def, ...partial })
 
-  const needsTarget = ['REST_SERVER', 'WEBSOCKET_CLIENT', 'TCP_CLIENT'].includes(def.protocol)
+  const needsTarget = ['REST_CLIENT', 'WEBSOCKET_CLIENT', 'TCP_CLIENT'].includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_PUBLISHER'
   const isWsClient = def.protocol === 'WEBSOCKET_CLIENT'
   const isTcpClient = def.protocol === 'TCP_CLIENT'
@@ -128,12 +128,21 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
       )}
 
       {isKafka && (
-        <InputField
-          label="Kafka 토픽"
-          value={def.targetTopic ?? ''}
-          onChange={(e) => update({ targetTopic: e.target.value })}
-          placeholder="예: my-topic"
-        />
+        <>
+          <InputField
+            label="Bootstrap Servers"
+            value={def.bootstrapServers ?? ''}
+            onChange={(e) => update({ bootstrapServers: e.target.value })}
+            placeholder="예: localhost:9092"
+            hint="분산 서버 시: broker1:9092,broker2:9092,broker3:9092"
+          />
+          <InputField
+            label="Kafka 토픽"
+            value={def.targetTopic ?? ''}
+            onChange={(e) => update({ targetTopic: e.target.value })}
+            placeholder="예: my-topic"
+          />
+        </>
       )}
 
       <InputField

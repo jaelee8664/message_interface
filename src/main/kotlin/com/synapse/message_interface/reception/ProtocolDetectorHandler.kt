@@ -6,11 +6,9 @@ import io.netty.channel.ChannelHandlerContext
 import io.netty.handler.codec.ByteToMessageDecoder
 import io.netty.handler.codec.json.JsonObjectDecoder
 import io.netty.handler.codec.xml.XmlFrameDecoder
-import io.netty.handler.timeout.IdleStateHandler
 import org.slf4j.LoggerFactory
 import reactor.netty.NettyPipeline
 import java.util.NoSuchElementException
-import java.util.concurrent.TimeUnit
 
 class ProtocolDetectorHandler(
     private val dispatcher: WorkflowDispatcher,
@@ -25,6 +23,8 @@ class ProtocolDetectorHandler(
         val pipeline = ctx.pipeline()
         if (isHttp(buf)) {
             log.debug("[ProtocolDetector] HTTP 감지 → Spring 처리")
+            // HTTP/WebSocket 연결에는 idle handler 불필요 → 제거
+            try { pipeline.remove("tcp-idle-state") } catch (_: NoSuchElementException) {}
             pipeline.remove(this)
         } else {
             val format = detectFormat(buf)
@@ -32,37 +32,19 @@ class ProtocolDetectorHandler(
 
             val tcpHandler = RawTcpInboundHandler(dispatcher, sessionRegistry)
 
-            // IdleStateHandler는 raw TCP 연결에만 적용 (HTTP/WebSocket 제외)
-            if (idleTimeoutSeconds > 0) {
-                pipeline.addAfter(ctx.name(), "tcp-idle-state",
-                    IdleStateHandler(idleTimeoutSeconds.toLong(), 0L, 0L, TimeUnit.SECONDS))
-                val insertAfter = "tcp-idle-state"
-                when (format) {
-                    TcpFormat.JSON -> {
-                        pipeline.addAfter(insertAfter, "json-frame-decoder", JsonObjectDecoder(MAX_FRAME_SIZE))
-                        pipeline.addAfter("json-frame-decoder", "raw-tcp-inbound", tcpHandler)
-                    }
-                    TcpFormat.XML -> {
-                        pipeline.addAfter(insertAfter, "xml-frame-decoder", XmlFrameDecoder(MAX_FRAME_SIZE))
-                        pipeline.addAfter("xml-frame-decoder", "raw-tcp-inbound", tcpHandler)
-                    }
-                    TcpFormat.UNKNOWN -> {
-                        pipeline.addAfter(insertAfter, "raw-tcp-inbound", tcpHandler)
-                    }
+            // tcp-idle-state는 PortUnificationCustomizer에서 연결 시점에 이미 추가되어 있음
+            // 여기서는 frame decoder와 raw handler만 추가 (protocol-detector 다음에 삽입)
+            when (format) {
+                TcpFormat.JSON -> {
+                    pipeline.addAfter(ctx.name(), "json-frame-decoder", JsonObjectDecoder(MAX_FRAME_SIZE))
+                    pipeline.addAfter("json-frame-decoder", "raw-tcp-inbound", tcpHandler)
                 }
-            } else {
-                when (format) {
-                    TcpFormat.JSON -> {
-                        pipeline.addAfter(ctx.name(), "json-frame-decoder", JsonObjectDecoder(MAX_FRAME_SIZE))
-                        pipeline.addAfter("json-frame-decoder", "raw-tcp-inbound", tcpHandler)
-                    }
-                    TcpFormat.XML -> {
-                        pipeline.addAfter(ctx.name(), "xml-frame-decoder", XmlFrameDecoder(MAX_FRAME_SIZE))
-                        pipeline.addAfter("xml-frame-decoder", "raw-tcp-inbound", tcpHandler)
-                    }
-                    TcpFormat.UNKNOWN -> {
-                        pipeline.addAfter(ctx.name(), "raw-tcp-inbound", tcpHandler)
-                    }
+                TcpFormat.XML -> {
+                    pipeline.addAfter(ctx.name(), "xml-frame-decoder", XmlFrameDecoder(MAX_FRAME_SIZE))
+                    pipeline.addAfter("xml-frame-decoder", "raw-tcp-inbound", tcpHandler)
+                }
+                TcpFormat.UNKNOWN -> {
+                    pipeline.addAfter(ctx.name(), "raw-tcp-inbound", tcpHandler)
                 }
             }
 

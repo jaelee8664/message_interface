@@ -4,25 +4,41 @@ import com.synapse.message_interface.api.dto.ApiResponse
 import com.synapse.message_interface.log.MessageTraceLogger
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
-import reactor.core.publisher.Mono
 
 @RestController
 @RequestMapping("/synapse/logs")
 class LogController(private val logger: MessageTraceLogger) {
 
+    /** Flat log search — returns raw log entries matching the field value. */
     @GetMapping("/search")
-    fun search(
+    suspend fun search(
         @RequestParam fieldKey: String,
         @RequestParam fieldValue: String,
-        @RequestParam(defaultValue = "100") limit: Int,
+        @RequestParam(defaultValue = "200") limit: Int,
         @RequestParam(defaultValue = "false") fromFiles: Boolean,
         @RequestParam(defaultValue = "7") days: Int
-    ): Mono<ResponseEntity<ApiResponse<*>>> {
+    ): ResponseEntity<ApiResponse<*>> {
         val results = if (fromFiles) {
-            logger.searchFromFiles(fieldKey, fieldValue, days)
+            logger.searchFromFiles(fieldKey, fieldValue, days, limit)
         } else {
             logger.search(fieldKey, fieldValue, limit)
         }
-        return Mono.just(ResponseEntity.ok(ApiResponse.ok(results)))
+        return ResponseEntity.ok(ApiResponse.ok(results))
+    }
+
+    /**
+     * Trace search — finds all system traceIds containing the field value,
+     * then returns all their log entries grouped by traceId in time order.
+     */
+    @GetMapping("/trace")
+    suspend fun trace(
+        @RequestParam fieldKey: String,
+        @RequestParam fieldValue: String,
+        @RequestParam(defaultValue = "true") fromFiles: Boolean,
+        @RequestParam(defaultValue = "7") days: Int,
+        @RequestParam(defaultValue = "50") maxTraces: Int
+    ): ResponseEntity<ApiResponse<*>> {
+        val result = logger.searchTraces(fieldKey, fieldValue, fromFiles, days, maxTraces)
+        return ResponseEntity.ok(ApiResponse.ok(result))
     }
 }

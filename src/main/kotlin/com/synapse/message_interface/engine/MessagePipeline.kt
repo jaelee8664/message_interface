@@ -1,17 +1,23 @@
 package com.synapse.message_interface.engine
 
+import com.synapse.message_interface.deadletter.DeadLetterEntry
+import com.synapse.message_interface.deadletter.DeadLetterStore
 import com.synapse.message_interface.domain.NodeType
+import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.WorkflowNode
 import com.synapse.message_interface.domain.WorkflowUnit
+import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.domain.node.NodeErrorResponse
 import com.synapse.message_interface.log.MessageTraceLogger
 import com.synapse.message_interface.log.TraceLog
 import com.synapse.message_interface.log.TraceStatus
 import com.synapse.message_interface.parser.MessageParserRegistry
+import com.synapse.message_interface.reception.TcpServerSessionRegistry
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.springframework.stereotype.Component
 import java.time.Instant
+import java.util.Base64
 
 /** Carries mutable state through graph traversal. */
 private class PipelineState(
@@ -42,7 +48,9 @@ class MessagePipeline(
     private val node4Executor: Node4Executor,
     private val node5Executor: Node5Executor,
     private val traceLogger: MessageTraceLogger,
-    private val parserRegistry: MessageParserRegistry
+    private val deadLetterStore: DeadLetterStore,
+    private val parserRegistry: MessageParserRegistry,
+    private val tcpServerSessionRegistry: TcpServerSessionRegistry
 ) {
 
     /**
@@ -62,6 +70,20 @@ class MessagePipeline(
         return try {
             traverseForward(startNode.id, context, unit, state, mutableSetOf())
         } catch (e: Exception) {
+            val nodeEx = e as? NodeException
+            deadLetterStore.save(DeadLetterEntry(
+                traceId = context.traceId,
+                workflowUnitId = unit.id,
+                workflowUnitName = unit.name,
+                protocol = context.protocol,
+                endpoint = context.endpoint,
+                metadata = context.metadata,
+                rawBytesBase64 = Base64.getEncoder().encodeToString(context.rawBytes),
+                failedNodeType = nodeEx?.failedNode?.nodeType?.name,
+                errorMessage = (nodeEx?.originalException ?: e).message,
+                timestamp = Instant.now()
+            ))
+
             val node5 = unit.nodes.firstOrNull { it.nodeType == NodeType.NODE5 && it.node5 != null }
             if (node5 != null) {
                 // Resolve error response: per-node override takes priority over NODE5 default
@@ -70,8 +92,11 @@ class MessagePipeline(
                     nodeEx?.failedNode?.errorResponse ?: node5.node5!!.defaultErrorConfig
                 val originalEx: Exception = nodeEx?.originalException ?: e
 
-                logSuccess(context, unit.id, NodeType.NODE5, emptyMap())
                 val errorResult = node5Executor.executeError(state.currentMap, errorResponse, originalEx)
+                // Log the actual error response being returned to the caller
+                if (errorResult.outputMap != null) {
+                    logError(context, unit.id, unit.name, NodeType.NODE5, originalEx, errorResult.outputMap)
+                }
 
                 // Traverse NODE5's outgoing edges as side effects (e.g. NODE5 → NODE4)
                 // Failures here must not override the already-built error response
@@ -81,7 +106,7 @@ class MessagePipeline(
                         if (errorResult.outputMap != null) state.currentMap = errorResult.outputMap.toMutableMap()
                         traverseForward(edge.targetNodeId, context, unit, state, mutableSetOf())
                     } catch (sideEffectEx: Exception) {
-                        logError(context, unit.id, NodeType.NODE5, sideEffectEx)
+                        logError(context, unit.id, unit.name, NodeType.NODE5, sideEffectEx)
                     }
                 }
 
@@ -117,7 +142,14 @@ class MessagePipeline(
 
         val nodeResult: PipelineResult = when (node.nodeType) {
 
-            NodeType.NODE0 -> PipelineResult(null)  // Reception handled externally
+            NodeType.NODE0 -> {
+                // Log the raw incoming message at the reception boundary
+                val snippet = context.parsedMessage
+                    ?.entries?.take(20)?.associate { it.key to it.value }
+                    ?: emptyMap()
+                logSuccess(context, unit.id, unit.name, node.nodeType, snippet)
+                PipelineResult(null)
+            }
 
             NodeType.NODE1 -> {
                 if (node.node1 != null) {
@@ -126,8 +158,7 @@ class MessagePipeline(
                         // Subsequent NODE1 nodes (e.g. parsing a NODE4 response) must parse state.rawBytes fresh.
                         val preParsed = if (state.currentMap.isEmpty()) context.parsedMessage else null
                         state.currentMap = node1Executor.execute(state.rawBytes, node.node1, preParsed)
-                        logSuccess(context, unit.id, node.nodeType, state.currentMap)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
+                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
                 }
                 PipelineResult(null)
             }
@@ -136,8 +167,7 @@ class MessagePipeline(
                 if (node.node2 != null) {
                     try {
                         state.currentMap = node2Executor.execute(state.currentMap, node.node2)
-                        logSuccess(context, unit.id, node.nodeType, state.currentMap)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
+                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
                 }
                 PipelineResult(null)
             }
@@ -146,8 +176,7 @@ class MessagePipeline(
                 if (node.node3 != null) {
                     try {
                         state.currentMap = node3Executor.execute(state.currentMap, node.node3)
-                        logSuccess(context, unit.id, node.nodeType, state.currentMap)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
+                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
                 }
                 PipelineResult(null)
             }
@@ -156,12 +185,16 @@ class MessagePipeline(
                 if (node.node4 != null) {
                     try {
                         val responseBytes = node4Executor.execute(state.currentMap, node.node4, context)
-                        logSuccess(context, unit.id, node.nodeType, state.currentMap)
+                        logSuccess(
+                            context, unit.id, unit.name, node.nodeType, state.currentMap,
+                            protocol = node.node4.protocol.name,
+                            targetInfo = buildTargetInfo(node.node4, context)
+                        )
                         if (responseBytes != null) {
                             state.rawBytes = responseBytes
                         }
                         PipelineResult(responseBytes)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
+                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
                 } else PipelineResult(null)
             }
 
@@ -169,9 +202,15 @@ class MessagePipeline(
                 if (node.node5 != null) {
                     try {
                         val result = node5Executor.executeSuccess(state.currentMap, node.node5)
-                        logSuccess(context, unit.id, node.nodeType, state.currentMap)
+                        // Log NODE5 only for REST_SERVER: it directly sends the HTTP response.
+                        // For other protocols (TCP, WebSocket, etc.) NODE5 just formats the body;
+                        // NODE4 handles the actual transmission and is already logged.
+                        if (result.body != null && result.outputMap != null &&
+                            context.protocol == ProtocolType.REST_SERVER.name) {
+                            logSuccess(context, unit.id, unit.name, node.nodeType, result.outputMap)
+                        }
                         result
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id) }
+                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
                 } else PipelineResult(null)
             }
         }
@@ -185,7 +224,7 @@ class MessagePipeline(
                     if (nodeResult.outputMap != null) state.currentMap = nodeResult.outputMap.toMutableMap()
                     traverseForward(edge.targetNodeId, context, unit, state, visited)
                 } catch (e: Exception) {
-                    logError(context, unit.id, node.nodeType, e)
+                    logError(context, unit.id, unit.name, node.nodeType, e)
                 }
             }
             return nodeResult
@@ -214,33 +253,71 @@ class MessagePipeline(
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun wrapAndLog(e: Exception, node: WorkflowNode, context: MessageContext, unitId: String): NodeException {
+    private fun wrapAndLog(e: Exception, node: WorkflowNode, context: MessageContext, unitId: String, unitName: String): NodeException {
         val reported = if (!node.customErrorMessage.isNullOrBlank()) RuntimeException(node.customErrorMessage, e) else e
-        logError(context, unitId, node.nodeType, reported)
+        logError(context, unitId, unitName, node.nodeType, reported)
         // Keep 'e' as originalException so ResponseStatusException status can be derived correctly
         return NodeException(failedNode = node, originalException = e, cause = reported)
     }
 
-    private fun logSuccess(context: MessageContext, unitId: String, nodeType: NodeType, data: Map<String, Any?>) {
+    private fun buildTargetInfo(def: Node4Definition, context: MessageContext): String? = when (def.protocol) {
+        ProtocolType.REST_CLIENT      -> buildUrl(def.targetHost, def.targetPort, def.targetPath)
+        ProtocolType.TCP_CLIENT       -> "${def.targetHost ?: "localhost"}:${def.targetPort ?: 9091}"
+        ProtocolType.WEBSOCKET_CLIENT -> "ws://${def.targetHost ?: "localhost"}:${def.targetPort ?: 80}${def.targetPath ?: "/"}"
+        ProtocolType.KAFKA_PUBLISHER  -> "topic: ${def.targetTopic ?: "-"}"
+        ProtocolType.WEBSOCKET_SERVER -> def.targetPath
+        ProtocolType.TCP_SERVER       -> {
+            val channelId = def.targetPath ?: context.metadata["channelId"]
+            channelId?.let { tcpServerSessionRegistry.getRemoteAddress(it) } ?: "TCP_SERVER"
+        }
+        else -> null
+    }
+
+    private fun buildUrl(host: String?, port: Int?, path: String?): String {
+        val h = host ?: "localhost"
+        val p = port?.let { ":$it" } ?: ""
+        val pa = path ?: "/"
+        return "http://$h$p$pa"
+    }
+
+    private fun logSuccess(
+        context: MessageContext,
+        unitId: String,
+        unitName: String,
+        nodeType: NodeType,
+        data: Map<String, Any?>,
+        protocol: String = context.protocol,
+        targetInfo: String? = null
+    ) {
         traceLogger.log(TraceLog(
             traceId = context.traceId,
             workflowUnitId = unitId,
+            workflowUnitName = unitName,
             nodeType = nodeType.name,
             timestamp = Instant.now(),
-            protocol = context.protocol,
+            protocol = protocol,
+            targetInfo = targetInfo,
             messageSnippet = data.entries.take(10).associate { it.key to it.value },
             status = TraceStatus.SUCCESS
         ))
     }
 
-    private fun logError(context: MessageContext, unitId: String, nodeType: NodeType, e: Exception) {
+    private fun logError(
+        context: MessageContext,
+        unitId: String,
+        unitName: String,
+        nodeType: NodeType,
+        e: Exception,
+        returnMessage: Map<String, Any?> = emptyMap()
+    ) {
         traceLogger.log(TraceLog(
             traceId = context.traceId,
             workflowUnitId = unitId,
+            workflowUnitName = unitName,
             nodeType = nodeType.name,
             timestamp = Instant.now(),
             protocol = context.protocol,
-            messageSnippet = emptyMap(),
+            messageSnippet = returnMessage.entries.take(10).associate { it.key to it.value },
             status = TraceStatus.ERROR,
             errorMessage = e.message
         ))

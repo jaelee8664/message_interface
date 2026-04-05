@@ -162,6 +162,8 @@ class TcpClientConnectionPool {
         }
     }
 
+    fun getAll(): Map<String, Boolean> = connections.mapValues { (_, c) -> !c.isDisposed }
+
     fun isConnected(key: String) = connections[key]?.isDisposed == false
 
     fun remove(key: String) {

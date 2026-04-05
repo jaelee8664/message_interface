@@ -1,6 +1,5 @@
 package com.synapse.message_interface.reception
 
-import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.engine.WorkflowDispatcher
@@ -23,7 +22,7 @@ class ReceptionManager(
     private val dispatcher: WorkflowDispatcher,
     private val sessionRegistry: WebSocketSessionRegistry,
     private val connectionRegistry: TcpConnectionRegistry,
-    private val referenceConfigService: ReferenceConfigService
+    private val tcpServerSessionRegistry: TcpServerSessionRegistry,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val activeHandlers = ConcurrentHashMap<String, Any>() // unitId → handler
@@ -62,26 +61,27 @@ class ReceptionManager(
                 activeHandlers[unit.id] = handler
                 log.info("[ReceptionManager] WebSocket Client 시작: unitId=${unit.id}")
             }
-            ProtocolType.TCP_SERVER -> {
-                // Port unification으로 8080에서 HTTP와 함께 처리됨 (PortUnificationCustomizer)
-                log.info("[ReceptionManager] TCP Server 등록 완료: unitId=${unit.id}")
-            }
             ProtocolType.TCP_CLIENT -> {
                 val handler = TcpClientHandler(unit, node0, dispatcher, connectionRegistry)
                 handler.start()
                 activeHandlers[unit.id] = handler
+                log.info("[ReceptionManager] TCP Client 시작: unitId=${unit.id}")
             }
             ProtocolType.KAFKA_CONSUMER -> {
-                val handler = KafkaConsumerHandler(unit, node0, dispatcher, referenceConfigService.getKafkaBootstrapServers())
+                val handler = KafkaConsumerHandler(unit, node0, dispatcher, node0.bootstrapServers ?: "localhost:9092")
                 handler.start()
                 activeHandlers[unit.id] = handler
+                log.info("[ReceptionManager] Kafka Consumer 시작: unitId=${unit.id}")
             }
-            ProtocolType.KAFKA_PUBLISHER -> {
-                log.info("[ReceptionManager] KAFKA_PUBLISHER는 Node4 송신 전용 프로토콜입니다. Node0에서 사용 불가: unitId=${unit.id}")
-            }
-            ProtocolType.WEBSOCKET_SERVER, ProtocolType.REST_SERVER -> {
-                // These are handled by Spring (WebSocketHandlerMapping / RestServerHandler)
+            ProtocolType.TCP_SERVER,
+            ProtocolType.WEBSOCKET_SERVER,
+            ProtocolType.REST_SERVER -> {
+                // 서버 프로토콜은 Spring/Netty가 처리 — 세션 정리는 restartUnit()에서 수행
                 log.info("[ReceptionManager] 서버 프로토콜 등록 완료: ${node0.protocol}, unitId=${unit.id}")
+            }
+            ProtocolType.KAFKA_PUBLISHER,
+            ProtocolType.REST_CLIENT -> {
+                log.info("[ReceptionManager] ${node0.protocol}는 Node4 송신 전용입니다. Node0에서 사용 불가: unitId=${unit.id}")
             }
         }
     }
@@ -92,10 +92,13 @@ class ReceptionManager(
             is TcpClientHandler -> handler.stop()
             is KafkaConsumerHandler -> handler.stop()
         }
+        // 서버 프로토콜 세션 정리 (unit 삭제 시)
+        sessionRegistry.getSession(unitId)?.close()?.subscribe()
+        tcpServerSessionRegistry.closeAll()
     }
 
     fun restartUnit(unit: WorkflowUnit) {
-        stopHandlers(unit.id)
+        stopHandlers(unit.id)  // 클라이언트 핸들러 종료 + 서버 세션 정리 포함
         startHandlers(unit)
     }
 }

@@ -19,7 +19,14 @@ repositories {
 	mavenCentral()
 }
 
+// Replace Spring Boot's default Logback with Log4j2 + LMAX Disruptor (all-async)
+configurations.all {
+	exclude(group = "org.springframework.boot", module = "spring-boot-starter-logging")
+}
+
 dependencies {
+	implementation("org.springframework.boot:spring-boot-starter-log4j2")
+	implementation("com.lmax:disruptor:3.4.4")
 	implementation("org.springframework.boot:spring-boot-starter-kafka")
 	implementation("org.springframework.boot:spring-boot-starter-data-mongodb")
 	implementation("org.springframework.boot:spring-boot-starter-security")
@@ -51,5 +58,10 @@ tasks.withType<Test> {
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
-	jvmArgs("-Dpolyglot.engine.WarnInterpreterOnly=false", "-Xmx2g")
+	jvmArgs(
+		"-Dpolyglot.engine.WarnInterpreterOnly=false",
+		"-Xmx2g",
+		// Log4j2 all-async mode (LMAX Disruptor ring buffer)
+		"-Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector"
+	)
 }

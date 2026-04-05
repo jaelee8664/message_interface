@@ -1,49 +1,227 @@
 package com.synapse.message_interface.log
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.synapse.message_interface.engine.FlatMessageAccessor
+import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
+import tools.jackson.databind.ObjectMapper
+import java.io.BufferedWriter
 import java.io.File
+import java.io.FileWriter
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.ConcurrentLinkedDeque
-import tools.jackson.databind.ObjectMapper
+import java.util.concurrent.atomic.AtomicReference
 
 @Component
-class MessageTraceLogger(private val objectMapper: ObjectMapper) {
+class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBean {
+
     companion object {
         const val LOG_DIR = "message-logs"
-        const val MAX_SIZE_BYTES = 10L * 1024 * 1024 * 1024  // 10GB
-        const val RETENTION_DAYS = 7L
+        const val MAX_MEMORY_ENTRIES = 10_000
+        /** Drop logs silently if the async channel is full (high-load protection). */
+        const val CHANNEL_CAPACITY = 100_000
+        /** Periodic flush interval in milliseconds — limits maximum log loss on crash. */
+        const val FLUSH_INTERVAL_MS = 1_000L
     }
 
-    // In-memory recent log buffer (last 1000 entries)
-    private val recentLogs = ConcurrentLinkedDeque<TraceLog>()
     private val logDir = File(LOG_DIR).also { it.mkdirs() }
 
-    fun log(traceLog: TraceLog) {
-        // Write to daily log file
-        val fileName = "trace_${LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)}.jsonl"
-        File(logDir, fileName).appendText(objectMapper.writeValueAsString(traceLog) + "\n")
+    /** Single-producer / single-consumer channel — the background coroutine owns all file I/O. */
+    private val channel = Channel<TraceLog>(capacity = CHANNEL_CAPACITY)
 
-        // Update in-memory buffer
-        recentLogs.addLast(traceLog)
-        if (recentLogs.size > 1000) recentLogs.pollFirst()
+    /** Ring buffer for recent-log search (all reads/writes guarded by [lock]). */
+    private val recentLogs = ArrayDeque<TraceLog>()
+    private val lock = Any()
+
+    /** Shared reference so the flush coroutine can reach the writer owned by the consumer coroutine. */
+    private val fileWriterRef = AtomicReference<DailyFileWriter?>(null)
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        scope.launch { consumeLogs() }
+        scope.launch { periodicFlush() }
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /** Fire-and-forget: enqueue a log entry for async file write. Never blocks. */
+    fun log(traceLog: TraceLog) {
+        channel.trySend(traceLog) // drops silently when channel is full (non-blocking)
     }
 
     /**
-     * Search logs by field key-value within the in-memory buffer and recent files.
+     * Aggregates pipeline stats from the in-memory log buffer for the last [windowMinutes] minutes.
+     * Returns per-unit counts grouped by (unitId, unitName).
      */
+    fun getRecentStats(windowMinutes: Int = 60): List<UnitStat> {
+        val cutoff = Instant.now().minusSeconds(windowMinutes * 60L)
+        val snapshot = synchronized(lock) { recentLogs.toList() }
+        data class Acc(var success: Int = 0, var error: Int = 0, var lastActivity: Instant? = null)
+        val map = LinkedHashMap<String, Acc>()
+        for (log in snapshot) {
+            if (log.timestamp.isBefore(cutoff)) continue
+            val key = log.workflowUnitId
+            val acc = map.getOrPut(key) { Acc() }
+            if (log.status == TraceStatus.SUCCESS) acc.success++ else acc.error++
+            if (acc.lastActivity == null || log.timestamp.isAfter(acc.lastActivity)) acc.lastActivity = log.timestamp
+        }
+        // Re-scan once to get unitName (last seen name per unitId)
+        val names = mutableMapOf<String, String>()
+        for (log in snapshot) { names[log.workflowUnitId] = log.workflowUnitName }
+        return map.map { (unitId, acc) ->
+            UnitStat(unitId, names[unitId] ?: unitId, acc.success, acc.error, acc.lastActivity)
+        }
+    }
+
+    data class UnitStat(
+        val unitId: String,
+        val unitName: String,
+        val successCount: Int,
+        val errorCount: Int,
+        val lastActivity: Instant?
+    )
+
+    /** Fast in-memory search over the last [MAX_MEMORY_ENTRIES] logs. */
     fun search(fieldKey: String, fieldValue: String, limit: Int = 100): List<TraceLog> {
-        return recentLogs
-            .filter { log -> log.messageSnippet[fieldKey]?.toString() == fieldValue }
-            .sortedBy { it.timestamp }
+        return synchronized(lock) { recentLogs.toList() }
+            .filter { matchesField(it.messageSnippet, fieldKey, fieldValue) }
+            .sortedByDescending { it.timestamp }
             .take(limit)
     }
 
     /**
-     * Search logs from files by date range.
+     * Find all logs where [fieldKey] == [fieldValue] (supports dot-notation like "header.trace_id"),
+     * then return every log entry sharing those traceIds, grouped by traceId and ordered by time.
      */
-    fun searchFromFiles(fieldKey: String, fieldValue: String, days: Int = 7): List<TraceLog> {
+    suspend fun searchTraces(
+        fieldKey: String,
+        fieldValue: String,
+        fromFiles: Boolean,
+        days: Int = 7,
+        maxTraces: Int = 50
+    ): TraceSearchResult = withContext(Dispatchers.IO) {
+        val allLogs: List<TraceLog> = if (fromFiles) {
+            collectAllFromFiles(days)
+        } else {
+            synchronized(lock) { recentLogs.toList() }
+        }
+
+        // Pass 1: find system traceIds that contain the searched field value
+        val matchedTraceIds = allLogs
+            .filter { log -> matchesField(log.messageSnippet, fieldKey, fieldValue) }
+            .map { it.traceId }
+            .toSet()
+
+        // Pass 2: group all entries for matched traceIds by traceId, ordered by timestamp
+        val grouped = allLogs
+            .filter { it.traceId in matchedTraceIds }
+            .groupBy { it.traceId }
+            .map { (traceId, entries) ->
+                val sorted = entries.sortedBy { it.timestamp }
+                TraceEntry(
+                    traceId = traceId,
+                    firstSeen = sorted.first().timestamp,
+                    workflowUnitName = sorted.first().workflowUnitName,
+                    entries = sorted
+                )
+            }
+            .sortedBy { it.firstSeen }
+            .take(maxTraces)
+
+        TraceSearchResult(fieldKey = fieldKey, fieldValue = fieldValue, traces = grouped)
+    }
+
+    /**
+     * File-based search over [days] days of JSONL log files.
+     * Runs on [Dispatchers.IO] — safe to call from a coroutine or suspend controller.
+     */
+    suspend fun searchFromFiles(
+        fieldKey: String,
+        fieldValue: String,
+        days: Int = 7,
+        limit: Int = 500
+    ): List<TraceLog> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<TraceLog>()
+        val cutoff = LocalDate.now().minusDays(days.toLong())
+
+        logDir.listFiles()
+            ?.filter { f ->
+                f.name.startsWith("trace_") && f.name.endsWith(".jsonl") &&
+                runCatching {
+                    val dateStr = f.name.removePrefix("trace_").removeSuffix(".jsonl")
+                    !LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE).isBefore(cutoff)
+                }.getOrDefault(false)
+            }
+            ?.sortedByDescending { it.name } // newest first
+            ?.forEach { file ->
+                if (results.size >= limit) return@forEach
+                file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                    reader.lineSequence().forEach { line ->
+                        if (results.size >= limit) return@forEach
+                        runCatching {
+                            val log = objectMapper.readValue(line, TraceLog::class.java)
+                            if (matchesField(log.messageSnippet, fieldKey, fieldValue)) {
+                                results.add(log)
+                            }
+                        }
+                    }
+                }
+            }
+
+        results.sortedByDescending { it.timestamp }
+    }
+
+    override fun destroy() {
+        channel.close()
+        scope.cancel()
+    }
+
+    // ── Background coroutines ─────────────────────────────────────────────────
+
+    private suspend fun consumeLogs() {
+        val fileWriter = DailyFileWriter().also { fileWriterRef.set(it) }
+        try {
+            for (log in channel) {
+                val json = objectMapper.writeValueAsString(log)
+                fileWriter.write(json)
+                synchronized(lock) {
+                    recentLogs.addLast(log)
+                    if (recentLogs.size > MAX_MEMORY_ENTRIES) recentLogs.removeFirst()
+                }
+            }
+        } finally {
+            fileWriterRef.set(null)
+            fileWriter.flush()
+            fileWriter.close()
+        }
+    }
+
+    /** Flushes the writer to disk every second — caps crash loss to at most 1 second of logs. */
+    private suspend fun periodicFlush() {
+        while (true) {
+            delay(FLUSH_INTERVAL_MS)
+            fileWriterRef.get()?.flush()
+        }
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private fun matchesField(snippet: Map<String, Any?>, fieldKey: String, fieldValue: String): Boolean {
+        return runCatching {
+            FlatMessageAccessor.get(snippet, fieldKey)?.toString() == fieldValue
+        }.getOrDefault(false)
+    }
+
+    private fun collectAllFromFiles(days: Int): List<TraceLog> {
         val results = mutableListOf<TraceLog>()
         val cutoff = LocalDate.now().minusDays(days.toLong())
         logDir.listFiles()
@@ -51,20 +229,46 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) {
                 f.name.startsWith("trace_") && f.name.endsWith(".jsonl") &&
                 runCatching {
                     val dateStr = f.name.removePrefix("trace_").removeSuffix(".jsonl")
-                    LocalDate.parse(dateStr).isAfter(cutoff)
+                    !LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE).isBefore(cutoff)
                 }.getOrDefault(false)
             }
-            ?.sortedBy { it.name }
+            ?.sortedByDescending { it.name }
             ?.forEach { file ->
-                file.bufferedReader().lines().forEach { line ->
-                    runCatching {
-                        val log = objectMapper.readValue(line, TraceLog::class.java)
-                        if (log.messageSnippet[fieldKey]?.toString() == fieldValue) {
-                            results.add(log)
+                file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                    reader.lineSequence().forEach { line ->
+                        runCatching {
+                            results.add(objectMapper.readValue(line, TraceLog::class.java))
                         }
                     }
                 }
             }
-        return results.sortedBy { it.timestamp }
+        return results
+    }
+
+    // ── Daily file writer (append mode, buffered) ─────────────────────────────
+
+    private inner class DailyFileWriter : AutoCloseable {
+        private var currentDate: LocalDate = LocalDate.MIN
+        private var writer: BufferedWriter? = null
+
+        fun write(json: String) {
+            val today = LocalDate.now()
+            if (today != currentDate) {
+                writer?.flush()
+                writer?.close()
+                currentDate = today
+                val file = File(logDir, "trace_${today.format(DateTimeFormatter.ISO_LOCAL_DATE)}.jsonl")
+                writer = FileWriter(file, true).buffered(65_536)
+            }
+            writer!!.write(json)
+            writer!!.newLine()
+        }
+
+        fun flush() = writer?.flush()
+
+        override fun close() {
+            writer?.flush()
+            writer?.close()
+        }
     }
 }
