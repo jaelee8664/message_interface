@@ -30,7 +30,6 @@ export interface Node0Definition {
   pingEnabled: boolean
   pingIntervalSeconds: number
   pongTimeoutSeconds: number
-  idleTimeoutSeconds: number
   reconnectEnabled: boolean
   reconnectDelaySeconds: number
   bidirectional: boolean

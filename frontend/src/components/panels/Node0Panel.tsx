@@ -20,14 +20,13 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
 ]
 
 const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
-const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
+const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT']
 
 const DEFAULT: Node0Definition = {
   protocol: 'REST_SERVER',
   pingEnabled: false,
   pingIntervalSeconds: 30,
   pongTimeoutSeconds: 10,
-  idleTimeoutSeconds: 60,
   reconnectEnabled: true,
   reconnectDelaySeconds: 5,
   bidirectional: false,
@@ -154,15 +153,6 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
 
       {isClient && (
         <>
-          {def.protocol === 'TCP_CLIENT' && (
-            <InputField
-              label="수신 Idle 타임아웃 (초)"
-              type="number"
-              value={def.idleTimeoutSeconds}
-              onChange={(e) => update({ idleTimeoutSeconds: Number(e.target.value) })}
-              hint="이 시간(초) 동안 수신 데이터가 없으면 좀비 연결로 판단하고 재연결합니다. 0 = 비활성화"
-            />
-          )}
           <CheckboxField
             label="자동 재연결"
             checked={def.reconnectEnabled}

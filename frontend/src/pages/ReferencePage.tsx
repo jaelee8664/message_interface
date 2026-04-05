@@ -49,6 +49,53 @@ export default function ReferencePage() {
   )
 }
 
+function renderFields(
+  obj: Record<string, any>,
+  sectionKey: string,
+  subKey: string | undefined,
+  setConfig: React.Dispatch<React.SetStateAction<Record<string, any>>>
+): React.ReactNode[] {
+  return Object.entries(obj).map(([field, value]) => {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      return (
+        <div key={field}>
+          <div className="text-xs text-slate-500 mt-1 mb-1.5">{field}</div>
+          <div className="pl-3 border-l border-slate-600/60 space-y-2">
+            {renderFields(value as Record<string, any>, sectionKey, field, setConfig)}
+          </div>
+        </div>
+      )
+    }
+
+    const isNum = typeof value === 'number'
+    return (
+      <div key={`${subKey ?? ''}-${field}`} className="flex items-center gap-3">
+        <label className="text-xs text-slate-400 w-40 shrink-0">{field}</label>
+        <input
+          type={isNum ? 'number' : 'text'}
+          value={String(value)}
+          onChange={(e) => {
+            const newVal = isNum ? Number(e.target.value) : e.target.value
+            setConfig((prev) => {
+              if (subKey) {
+                return {
+                  ...prev,
+                  [sectionKey]: {
+                    ...prev[sectionKey],
+                    [subKey]: { ...(prev[sectionKey]?.[subKey] ?? {}), [field]: newVal },
+                  },
+                }
+              }
+              return { ...prev, [sectionKey]: { ...prev[sectionKey], [field]: newVal } }
+            })
+          }}
+          className="flex-1 px-2 py-1 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+        />
+      </div>
+    )
+  })
+}
+
 function renderSection(
   title: string,
   key: string,
@@ -60,22 +107,7 @@ function renderSection(
     <div key={key} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
       <h2 className="text-sm font-semibold text-white mb-3">{title}</h2>
       <div className="space-y-2">
-        {Object.entries(section).map(([field, value]) => (
-          <div key={field} className="flex items-center gap-3">
-            <label className="text-xs text-slate-400 w-40 shrink-0">{field}</label>
-            <input
-              type="text"
-              value={String(value)}
-              onChange={(e) =>
-                setConfig((prev) => ({
-                  ...prev,
-                  [key]: { ...prev[key], [field]: e.target.value },
-                }))
-              }
-              className="flex-1 px-2 py-1 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
-            />
-          </div>
-        ))}
+        {renderFields(section, key, undefined, setConfig)}
       </div>
     </div>
   )
