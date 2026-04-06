@@ -107,10 +107,16 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         fieldValue: String,
         fromFiles: Boolean,
         days: Int = 7,
-        maxTraces: Int = 50
+        maxTraces: Int = 50,
+        fromDateStr: String? = null,
+        toDateStr: String? = null
     ): TraceSearchResult = withContext(Dispatchers.IO) {
+        val fmt = DateTimeFormatter.ISO_LOCAL_DATE
+        val from = fromDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now().minusDays(days.toLong())
+        val to = toDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now()
+
         val allLogs: List<TraceLog> = if (fromFiles) {
-            collectAllFromFiles(days)
+            collectAllFromFiles(from, to)
         } else {
             synchronized(lock) { recentLogs.toList() }
         }
@@ -221,15 +227,15 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         }.getOrDefault(false)
     }
 
-    private fun collectAllFromFiles(days: Int): List<TraceLog> {
+    private fun collectAllFromFiles(fromDate: LocalDate, toDate: LocalDate): List<TraceLog> {
         val results = mutableListOf<TraceLog>()
-        val cutoff = LocalDate.now().minusDays(days.toLong())
         logDir.listFiles()
             ?.filter { f ->
                 f.name.startsWith("trace_") && f.name.endsWith(".jsonl") &&
                 runCatching {
                     val dateStr = f.name.removePrefix("trace_").removeSuffix(".jsonl")
-                    !LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE).isBefore(cutoff)
+                    val fileDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE)
+                    !fileDate.isBefore(fromDate) && !fileDate.isAfter(toDate)
                 }.getOrDefault(false)
             }
             ?.sortedByDescending { it.name }

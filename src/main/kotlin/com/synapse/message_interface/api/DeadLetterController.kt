@@ -57,7 +57,7 @@ class DeadLetterController(
         return try {
             val result = workflowDispatcher.dispatch(context, format)
             val responseBody = result.body?.let { String(it, Charsets.UTF_8) }
-            ResponseEntity.ok(ApiResponse.ok(ReplayResult(success = true, responseBody = responseBody)))
+            ResponseEntity.ok(ApiResponse.ok(ReplayResult(success = result.isSuccess, responseBody = responseBody)))
         } catch (e: Exception) {
             ResponseEntity.ok(ApiResponse.ok(ReplayResult(success = false, errorMessage = e.message)))
         }

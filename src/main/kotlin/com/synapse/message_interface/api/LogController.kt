@@ -36,9 +36,11 @@ class LogController(private val logger: MessageTraceLogger) {
         @RequestParam fieldValue: String,
         @RequestParam(defaultValue = "true") fromFiles: Boolean,
         @RequestParam(defaultValue = "7") days: Int,
+        @RequestParam(required = false) fromDate: String?,
+        @RequestParam(required = false) toDate: String?,
         @RequestParam(defaultValue = "50") maxTraces: Int
     ): ResponseEntity<ApiResponse<*>> {
-        val result = logger.searchTraces(fieldKey, fieldValue, fromFiles, days, maxTraces)
+        val result = logger.searchTraces(fieldKey, fieldValue, fromFiles, days, maxTraces, fromDate, toDate)
         return ResponseEntity.ok(ApiResponse.ok(result))
     }
 }
