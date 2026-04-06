@@ -25,6 +25,9 @@ class WebSocketSessionRegistry {
 
     fun getAll(): Map<String, Boolean> = sessions.mapValues { (_, s) -> s.isOpen }
 
+    fun getRemoteAddress(unitId: String): String? =
+        sessions[unitId]?.handshakeInfo?.remoteAddress?.address?.hostAddress
+
     fun send(unitId: String, data: ByteArray): Mono<Void> {
         val session = sessions[unitId] ?: return Mono.error(IllegalStateException("세션 없음: $unitId"))
         return session.send(Mono.just(session.textMessage(String(data, Charsets.UTF_8))))

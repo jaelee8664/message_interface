@@ -17,13 +17,24 @@ class ProtocolDetectorHandler(
 ) : ByteToMessageDecoder() {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    override fun channelActive(ctx: ChannelHandlerContext) {
+        // 연결 즉시 세션을 등록한다. HTTP/WebSocket으로 판별되면 decode()에서 제거된다.
+        val channelId = ctx.channel().id().asShortText()
+        val remoteAddr = ctx.channel().remoteAddress()?.toString() ?: channelId
+        log.info("[TCP Server] 클라이언트 연결: $remoteAddr (channelId=$channelId)")
+        sessionRegistry?.register(channelId, ctx)
+        super.channelActive(ctx)
+    }
+
     override fun decode(ctx: ChannelHandlerContext, buf: ByteBuf, out: MutableList<Any>) {
         if (buf.readableBytes() < 4) return
 
         val pipeline = ctx.pipeline()
         if (isHttp(buf)) {
             log.debug("[ProtocolDetector] HTTP 감지 → Spring 처리")
-            // HTTP/WebSocket 연결에는 idle handler 불필요 → 제거
+            // HTTP/WebSocket 연결 — 세션 등록 취소 및 idle handler 제거
+            val channelId = ctx.channel().id().asShortText()
+            sessionRegistry?.remove(channelId)
             try { pipeline.remove("tcp-idle-state") } catch (_: NoSuchElementException) {}
             pipeline.remove(this)
         } else {
@@ -55,14 +66,6 @@ class ProtocolDetectorHandler(
             // Reactor Netty HTTP 서버는 demand-driven(auto-read=false) 방식으로 동작한다.
             // raw TCP 연결에서는 지속적으로 데이터를 읽어야 하므로 auto-read를 활성화한다.
             ctx.channel().config().setAutoRead(true)
-
-            // channelActive는 ProtocolDetector 추가 전에 이미 발화했으므로
-            // RawTcpInboundHandler.channelActive()가 호출되지 않는다.
-            // 이 시점(TCP 판별 완료, detector 제거 직전)에 세션을 등록한다 — 커넥션당 1회.
-            val channelId = ctx.channel().id().asShortText()
-            val remoteAddr = ctx.channel().remoteAddress()?.toString() ?: channelId
-            log.info("[TCP Server] 클라이언트 연결: $remoteAddr (channelId=$channelId)")
-            sessionRegistry?.register(channelId, ctx)
 
             pipeline.remove(this)
         }

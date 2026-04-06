@@ -28,7 +28,8 @@ class MonitoringController(
             TcpServerSession(channelId, tcpServerSessionRegistry.getRemoteAddress(channelId))
         }
         val wsServerSessions = webSocketSessionRegistry.getAll().map { (unitId, isOpen) ->
-            WsSession(unitId, isOpen)
+            val remoteIp = webSocketSessionRegistry.getRemoteAddress(unitId) ?: unitId
+            WsSession(unitId, remoteIp, isOpen)
         }
         val wsClientConnections = webSocketClientRegistry.getAll().map { (key, connected) ->
             ClientConnection(key, connected)
@@ -83,7 +84,7 @@ data class ConnectionStatus(
 )
 
 data class TcpServerSession(val channelId: String, val remoteAddress: String?)
-data class WsSession(val unitId: String, val isOpen: Boolean)
+data class WsSession(val unitId: String, val unitName: String, val isOpen: Boolean)
 data class ClientConnection(val key: String, val connected: Boolean)
 data class UnitStatDto(
     val unitId: String,

@@ -4,7 +4,7 @@ import axios from 'axios'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface TcpServerSession { channelId: string; remoteAddress: string | null }
-interface WsSession { unitId: string; isOpen: boolean }
+interface WsSession { unitId: string; unitName: string; isOpen: boolean }
 interface ClientConnection { key: string; connected: boolean }
 interface UnitStat {
   unitId: string
@@ -235,7 +235,7 @@ export default function MonitoringPage() {
               renderRow={(s: WsSession, i) => (
                 <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
                   <StatusDot active={s.isOpen} />
-                  <span className="text-slate-300 font-mono">{s.unitId}</span>
+                  <span className="text-slate-300">{s.unitName}</span>
                   <span className={`ml-auto text-xs ${s.isOpen ? 'text-green-400' : 'text-red-400'}`}>
                     {s.isOpen ? 'OPEN' : 'CLOSED'}
                   </span>

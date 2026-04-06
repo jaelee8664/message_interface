@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,6 +17,12 @@ interface DeadLetterEntry {
   timestamp: string
 }
 
+interface ReplayResult {
+  success: boolean
+  responseBody: string | null
+  errorMessage: string | null
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatTime(iso: string) {
@@ -28,16 +34,134 @@ function formatTime(iso: string) {
 }
 
 function decodeBase64(b64: string): string {
-  try {
-    return atob(b64)
-  } catch {
-    return b64
+  try { return atob(b64) } catch { return b64 }
+}
+
+function detectFormat(text: string): string {
+  const trimmed = text.trimStart()
+  if (trimmed.startsWith('<')) return 'XML'
+  return 'JSON'
+}
+
+// ── Replay Modal ──────────────────────────────────────────────────────────────
+
+function ReplayModal({ entry, onClose }: { entry: DeadLetterEntry; onClose: () => void }) {
+  const [message, setMessage] = useState(() => decodeBase64(entry.rawBytesBase64))
+  const [result, setResult] = useState<ReplayResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [])
+
+  async function handleReplay() {
+    setLoading(true)
+    setResult(null)
+    try {
+      const res = await axios.post('/synapse/dead-letters/replay', {
+        deadLetterId: entry.id,
+        workflowUnitId: entry.workflowUnitId,
+        protocol: entry.protocol,
+        endpoint: entry.endpoint,
+        metadata: entry.metadata,
+        format: detectFormat(message),
+        rawMessage: message,
+      })
+      setResult(res.data.data)
+    } catch (e: any) {
+      setResult({ success: false, responseBody: null, errorMessage: e.message ?? '요청 실패' })
+    } finally {
+      setLoading(false)
+    }
   }
+
+  function handleBackdropClick(e: React.MouseEvent) {
+    if (e.target === e.currentTarget) onClose()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={handleBackdropClick}
+    >
+      <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl w-full max-w-2xl mx-4 flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+          <div>
+            <h2 className="text-base font-bold text-white">메세지 재처리</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {entry.workflowUnitName}
+              {entry.failedNodeType && <span className="ml-2 text-red-400">({entry.failedNodeType} 실패)</span>}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+        </div>
+
+        {/* Meta strip */}
+        <div className="flex gap-4 px-5 py-2 border-b border-slate-700 text-xs text-slate-400 flex-wrap">
+          <span>프로토콜: <span className="text-blue-300">{entry.protocol}</span></span>
+          {entry.endpoint && <span>엔드포인트: <span className="text-slate-200 font-mono">{entry.endpoint}</span></span>}
+          {Object.keys(entry.metadata).length > 0 && (
+            <span>메타: <span className="text-slate-300 font-mono">
+              {Object.entries(entry.metadata).map(([k, v]) => `${k}=${v}`).join(', ')}
+            </span></span>
+          )}
+        </div>
+
+        {/* Editor */}
+        <div className="flex flex-col flex-1 min-h-0 px-5 py-4 gap-2">
+          <label className="text-xs text-slate-400">
+            전송할 메세지 (수정 가능)
+            <span className="ml-2 text-slate-600">— 형식: {detectFormat(message)}</span>
+          </label>
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            className="flex-1 min-h-[200px] font-mono text-xs bg-slate-900 border border-slate-600 rounded p-3 text-slate-200 resize-none focus:outline-none focus:border-blue-500"
+            spellCheck={false}
+          />
+        </div>
+
+        {/* Result */}
+        {result && (
+          <div className={`mx-5 mb-2 rounded border p-3 text-xs font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto ${
+            result.success
+              ? 'bg-green-950/40 border-green-700 text-green-300'
+              : 'bg-red-950/40 border-red-800 text-red-300'
+          }`}>
+            {result.success
+              ? `✓ 재처리 성공${result.responseBody ? '\n\n응답:\n' + result.responseBody : ''}`
+              : `✗ 재처리 실패\n\n${result.errorMessage ?? ''}`
+            }
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-700">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-slate-200"
+          >
+            닫기
+          </button>
+          <button
+            onClick={handleReplay}
+            disabled={loading || !message.trim()}
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-white font-medium"
+          >
+            {loading ? '처리 중...' : '재처리 실행'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Row component ─────────────────────────────────────────────────────────────
 
-function DeadLetterRow({ entry }: { entry: DeadLetterEntry }) {
+function DeadLetterRow({ entry, onReplay }: { entry: DeadLetterEntry; onReplay: (e: DeadLetterEntry) => void }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -91,8 +215,8 @@ function DeadLetterRow({ entry }: { entry: DeadLetterEntry }) {
 
           {/* Original message */}
           <div>
-            <span className="text-xs text-slate-400">원본 메세지 (raw bytes)</span>
-            <pre className="mt-1 text-xs font-mono bg-slate-900 border border-slate-700 rounded p-3 overflow-x-auto text-slate-300 whitespace-pre-wrap break-all max-h-48">
+            <span className="text-xs text-slate-400">원본 메세지</span>
+            <pre className="mt-1 text-xs font-mono bg-slate-900 border border-slate-700 rounded p-3 overflow-x-auto text-slate-300 whitespace-pre-wrap break-all max-h-40">
               {decodeBase64(entry.rawBytesBase64)}
             </pre>
           </div>
@@ -100,12 +224,22 @@ function DeadLetterRow({ entry }: { entry: DeadLetterEntry }) {
           {/* Error message */}
           {entry.errorMessage && (
             <div>
-              <span className="text-xs text-slate-400">에러 메세지</span>
-              <pre className="mt-1 text-xs font-mono bg-red-950/40 border border-red-800/50 rounded p-3 overflow-x-auto text-red-300 whitespace-pre-wrap break-all max-h-32">
+              <span className="text-xs text-slate-400">에러</span>
+              <pre className="mt-1 text-xs font-mono bg-red-950/40 border border-red-800/50 rounded p-3 overflow-x-auto text-red-300 whitespace-pre-wrap break-all max-h-24">
                 {entry.errorMessage}
               </pre>
             </div>
           )}
+
+          {/* Replay button */}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={e => { e.stopPropagation(); onReplay(entry) }}
+              className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded text-white font-medium"
+            >
+              재처리
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -122,6 +256,7 @@ export default function DeadLetterPage() {
   const [fromFiles, setFromFiles] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [replayTarget, setReplayTarget] = useState<DeadLetterEntry | null>(null)
 
   async function fetchEntries(d = days, ff = fromFiles) {
     setLoading(true)
@@ -156,10 +291,9 @@ export default function DeadLetterPage() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-lg font-bold">데드레터</h1>
-          <p className="text-xs text-slate-400 mt-0.5">파이프라인 처리 실패 메세지 보관함</p>
+          <p className="text-xs text-slate-400 mt-0.5">파이프라인 처리 실패 메세지 보관함 — 메세지 수정 후 재처리 가능</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Days selector */}
           <div className="flex items-center gap-1 text-xs text-slate-400">
             <span>조회 범위:</span>
             {DAY_OPTIONS.map(d => (
@@ -174,7 +308,6 @@ export default function DeadLetterPage() {
               </button>
             ))}
           </div>
-          {/* Source toggle */}
           <button
             onClick={() => handleFromFilesChange(!fromFiles)}
             className={`text-xs px-3 py-1 rounded border ${fromFiles
@@ -183,7 +316,6 @@ export default function DeadLetterPage() {
           >
             {fromFiles ? '파일 검색' : '메모리'}
           </button>
-          {/* Refresh */}
           <button
             onClick={() => fetchEntries()}
             disabled={loading}
@@ -196,11 +328,11 @@ export default function DeadLetterPage() {
 
       {/* Summary */}
       <div className="flex items-center gap-3 mb-4">
-        <span className="text-sm text-slate-400">총 <span className="text-white font-semibold">{entries.length}</span>건</span>
+        <span className="text-sm text-slate-400">
+          총 <span className="text-white font-semibold">{entries.length}</span>건
+        </span>
         {entries.length > 0 && (
-          <span className="text-xs text-slate-500">
-            최근: {formatTime(entries[0].timestamp)}
-          </span>
+          <span className="text-xs text-slate-500">최근: {formatTime(entries[0].timestamp)}</span>
         )}
       </div>
 
@@ -210,7 +342,6 @@ export default function DeadLetterPage() {
         </div>
       )}
 
-      {/* List */}
       {entries.length === 0 && !loading && !error && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-500">
           <span className="text-4xl mb-3">✓</span>
@@ -219,8 +350,13 @@ export default function DeadLetterPage() {
       )}
 
       {entries.map(entry => (
-        <DeadLetterRow key={entry.id} entry={entry} />
+        <DeadLetterRow key={entry.id} entry={entry} onReplay={setReplayTarget} />
       ))}
+
+      {/* Replay modal */}
+      {replayTarget && (
+        <ReplayModal entry={replayTarget} onClose={() => setReplayTarget(null)} />
+      )}
     </div>
   )
 }
