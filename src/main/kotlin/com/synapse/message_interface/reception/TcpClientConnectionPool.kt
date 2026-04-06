@@ -113,7 +113,6 @@ class TcpClientConnectionPool {
                     // 수신 데이터 drain
                     scope.launch {
                         connection.inbound().receive()
-                            .doOnNext { it.release() }
                             .then()
                             .awaitFirstOrNull()
                     }
