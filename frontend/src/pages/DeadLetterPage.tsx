@@ -133,7 +133,7 @@ function ReplayModal({ entry, onClose }: { entry: DeadLetterEntry; onClose: () =
           }`}>
             {result.success
               ? `✓ 재처리 성공${result.responseBody ? '\n\n응답:\n' + result.responseBody : ''}`
-              : `✗ 재처리 실패\n\n${result.errorMessage ?? ''}`
+              : `✗ 재처리 실패\n\n${result.errorMessage ?? result.responseBody ?? ''}`
             }
           </div>
         )}

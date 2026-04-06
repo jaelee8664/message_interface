@@ -27,6 +27,8 @@ interface TraceSearchResult {
   traces: TraceEntry[]
 }
 
+const PAGE_SIZE = 10
+
 const NODE_LABEL: Record<string, { label: string; color: string }> = {
   NODE0: { label: '수신', color: 'bg-blue-600' },
   NODE4: { label: '송신', color: 'bg-purple-600' },
@@ -40,6 +42,12 @@ function formatTime(iso: string) {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
   })
+}
+
+function toLocalDateStr(daysAgo = 0) {
+  const d = new Date()
+  d.setDate(d.getDate() - daysAgo)
+  return d.toISOString().split('T')[0]
 }
 
 function NodeBadge({ nodeType }: { nodeType: string }) {
@@ -119,22 +127,84 @@ function TraceCard({ trace }: { trace: TraceEntry }) {
   )
 }
 
+function Pagination({ total, page, onChange }: { total: number; page: number; onChange: (p: number) => void }) {
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+  if (totalPages <= 1) return null
+
+  // Show up to 10 page buttons; if more, show window around current page
+  const maxButtons = 10
+  let start = 1
+  let end = totalPages
+  if (totalPages > maxButtons) {
+    start = Math.max(1, page - Math.floor(maxButtons / 2))
+    end = start + maxButtons - 1
+    if (end > totalPages) { end = totalPages; start = Math.max(1, end - maxButtons + 1) }
+  }
+
+  const pages = []
+  for (let i = start; i <= end; i++) pages.push(i)
+
+  return (
+    <div className="flex items-center gap-1 mt-4 flex-wrap">
+      <button
+        onClick={() => onChange(page - 1)}
+        disabled={page === 1}
+        className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30"
+      >
+        ‹
+      </button>
+      {start > 1 && (
+        <>
+          <button onClick={() => onChange(1)} className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600">1</button>
+          {start > 2 && <span className="text-slate-500 text-xs px-1">…</span>}
+        </>
+      )}
+      {pages.map(p => (
+        <button
+          key={p}
+          onClick={() => onChange(p)}
+          className={`px-2 py-1 text-xs rounded ${p === page ? 'bg-blue-600 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+        >
+          {p}
+        </button>
+      ))}
+      {end < totalPages && (
+        <>
+          {end < totalPages - 1 && <span className="text-slate-500 text-xs px-1">…</span>}
+          <button onClick={() => onChange(totalPages)} className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600">{totalPages}</button>
+        </>
+      )}
+      <button
+        onClick={() => onChange(page + 1)}
+        disabled={page === totalPages}
+        className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30"
+      >
+        ›
+      </button>
+      <span className="text-xs text-slate-500 ml-2">{total}건 / {totalPages}페이지</span>
+    </div>
+  )
+}
+
 export default function LogPage() {
   const [fieldKey, setFieldKey] = useState('')
   const [fieldValue, setFieldValue] = useState('')
   const [fromFiles, setFromFiles] = useState(true)
-  const [days, setDays] = useState(7)
+  const [fromDate, setFromDate] = useState(toLocalDateStr(7))
+  const [toDate, setToDate] = useState(toLocalDateStr(0))
   const [result, setResult] = useState<TraceSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const search = async () => {
     if (!fieldKey || !fieldValue) return
     setLoading(true)
     setError(null)
+    setPage(1)
     try {
       const res = await axios.get('/synapse/logs/trace', {
-        params: { fieldKey, fieldValue, fromFiles, days }
+        params: { fieldKey, fieldValue, fromFiles, fromDate, toDate }
       })
       setResult(res.data.data)
     } catch (e: any) {
@@ -144,7 +214,10 @@ export default function LogPage() {
     }
   }
 
-  const traces = result?.traces ?? []
+  // Newest first
+  const traces = [...(result?.traces ?? [])].reverse()
+  const totalPages = Math.ceil(traces.length / PAGE_SIZE)
+  const pageTraces = traces.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
     <div className="p-6 h-full overflow-auto">
@@ -173,13 +246,21 @@ export default function LogPage() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">기간 (일)</label>
+          <label className="text-xs text-slate-400">시작일</label>
           <input
-            type="number"
-            value={days}
-            onChange={e => setDays(Number(e.target.value))}
-            min={1} max={7}
-            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-20"
+            type="date"
+            value={fromDate}
+            onChange={e => setFromDate(e.target.value)}
+            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-40"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-400">종료일</label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={e => setToDate(e.target.value)}
+            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-40"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -216,6 +297,11 @@ export default function LogPage() {
           <span className="text-blue-400 font-mono">"{result.fieldValue}"</span>
           {' — '}
           <span className="text-white">{traces.length}건</span>
+          {traces.length > PAGE_SIZE && (
+            <span className="text-slate-500 ml-2">
+              (페이지 {page} / {totalPages})
+            </span>
+          )}
         </div>
       )}
 
@@ -223,9 +309,12 @@ export default function LogPage() {
       {traces.length === 0 && !loading && result && (
         <div className="text-slate-500 text-center py-12">결과 없음</div>
       )}
-      {traces.map((trace, i) => (
+      {pageTraces.map((trace, i) => (
         <TraceCard key={i} trace={trace} />
       ))}
+
+      {/* Pagination */}
+      <Pagination total={traces.length} page={page} onChange={setPage} />
     </div>
   )
 }
