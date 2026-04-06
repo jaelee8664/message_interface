@@ -4,19 +4,21 @@ import com.synapse.message_interface.domain.MessageFormat
 import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.engine.WorkflowDispatcher
 import io.netty.buffer.ByteBuf
-import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 import io.netty.handler.timeout.IdleStateEvent
-import kotlinx.coroutines.reactor.mono
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
-import reactor.core.scheduler.Schedulers
 
 class RawTcpInboundHandler(
     private val dispatcher: WorkflowDispatcher,
     private val sessionRegistry: TcpServerSessionRegistry? = null
 ) : ChannelInboundHandlerAdapter() {
     private val log = LoggerFactory.getLogger(javaClass)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
         val channelId = ctx.channel().id().asShortText()
@@ -34,19 +36,18 @@ class RawTcpInboundHandler(
         log.debug("[TCP Server] 수신: ${bytes.size} bytes (format=$format)")
 
         val channelId = ctx.channel().id().asShortText()
-        mono {
-            val context = MessageContext(
-                rawBytes = bytes,
-                protocol = "TCP_SERVER",
-                metadata = mapOf("channelId" to channelId)
-            )
-            dispatcher.dispatch(context, format)
+        scope.launch {
+            try {
+                val context = MessageContext(
+                    rawBytes = bytes,
+                    protocol = "TCP_SERVER",
+                    metadata = mapOf("channelId" to channelId)
+                )
+                dispatcher.dispatch(context, format)
+            } catch (e: Exception) {
+                log.error("[TCP Server] 처리 오류: ${e.message}", e)
+            }
         }
-        .subscribeOn(Schedulers.boundedElastic())
-        .subscribe(
-            { _ -> },
-            { e -> log.error("[TCP Server] 처리 오류: ${e.message}", e) }
-        )
     }
 
     override fun userEventTriggered(ctx: ChannelHandlerContext, evt: Any) {

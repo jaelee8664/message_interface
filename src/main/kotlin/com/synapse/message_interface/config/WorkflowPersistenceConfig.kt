@@ -3,6 +3,10 @@ package com.synapse.message_interface.config
 import tools.jackson.databind.ObjectMapper
 import com.synapse.message_interface.domain.WorkflowTree
 import com.synapse.message_interface.workflow.WorkflowRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.reactive.awaitFirstOrNull
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.ApplicationRunner
@@ -30,7 +34,7 @@ class WorkflowPersistenceConfig(
         var loaded = false
         if (mongoRepo != null) {
             runCatching {
-                val doc = mongoRepo!!.findById("singleton").block()
+                val doc = runBlocking { mongoRepo!!.findById("singleton").awaitFirstOrNull() }
                 if (doc != null) {
                     registry.load(doc.tree)
                     log.info("[WorkflowPersistence] MongoDB에서 워크플로우 로드 완료 (${doc.tree.units.size}개 단위)")
@@ -52,16 +56,18 @@ class WorkflowPersistenceConfig(
         }
     }
 
-    fun save(tree: WorkflowTree, objectMapper: ObjectMapper) {
-        // Always save to JSON file
-        File(WORKFLOW_FILE).writeText(objectMapper.writeValueAsString(tree))
+    suspend fun save(tree: WorkflowTree, objectMapper: ObjectMapper) {
+        // Always save to JSON file (blocking I/O → Dispatchers.IO)
+        withContext(Dispatchers.IO) {
+            File(WORKFLOW_FILE).writeText(objectMapper.writeValueAsString(tree))
+        }
         log.debug("[WorkflowPersistence] workflow.json 저장 완료")
 
         // Also save to MongoDB if available
         if (mongoRepo != null) {
             runCatching {
                 val doc = MongoWorkflowDocument(tree = tree, updatedAt = Instant.now())
-                mongoRepo!!.save(doc).block()
+                mongoRepo!!.save(doc).awaitFirstOrNull()
                 log.debug("[WorkflowPersistence] MongoDB 저장 완료")
             }.onFailure {
                 log.warn("[WorkflowPersistence] MongoDB 저장 실패 (JSON은 정상 저장됨): ${it.message}")

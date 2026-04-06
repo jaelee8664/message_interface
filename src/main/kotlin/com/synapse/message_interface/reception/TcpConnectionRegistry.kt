@@ -1,5 +1,10 @@
 package com.synapse.message_interface.reception
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Sinks
 import reactor.netty.Connection
@@ -9,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 class TcpConnectionRegistry {
     private val connections = ConcurrentHashMap<String, Connection>()
     private val sinks = ConcurrentHashMap<String, Sinks.Many<ByteArray>>()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun register(unitId: String, connection: Connection) {
         val sink = Sinks.many().unicast().onBackpressureBuffer<ByteArray>()
@@ -17,10 +23,12 @@ class TcpConnectionRegistry {
         connections.put(unitId, connection)?.dispose()
 
         // persistent outbound — sink가 완료될 때까지 outboundDone이 되지 않음
-        connection.outbound()
-            .sendByteArray(sink.asFlux())
-            .then()
-            .subscribe(null, { /* 연결 종료 시 자연스럽게 에러 발생, 무시 */ })
+        scope.launch {
+            connection.outbound()
+                .sendByteArray(sink.asFlux())
+                .then()
+                .awaitFirstOrNull()
+        }
     }
 
     fun remove(unitId: String) {

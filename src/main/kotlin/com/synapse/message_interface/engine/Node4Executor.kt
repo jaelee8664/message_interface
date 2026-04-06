@@ -152,10 +152,10 @@ class Node4Executor(
      * Send to an already-connected WebSocket session (e.g. same unit's server session).
      * Uses the targetPath as lookup key if no unitId is available.
      */
-    private fun sendViaWebSocketToExisting(data: ByteArray, definition: Node4Definition) {
+    private suspend fun sendViaWebSocketToExisting(data: ByteArray, definition: Node4Definition) {
         val key = definition.targetPath ?: return
         try {
-            webSocketSessionRegistry.send(key, data).subscribe()
+            webSocketSessionRegistry.send(key, data).awaitFirstOrNull()
         } catch (e: Exception) {
             log.warn("[Node4] WebSocket 세션 송신 실패 (key=$key): ${e.message}")
         }

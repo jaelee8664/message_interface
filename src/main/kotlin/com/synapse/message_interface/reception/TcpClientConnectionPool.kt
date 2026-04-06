@@ -8,6 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.awaitFirstOrNull
+import kotlinx.coroutines.reactive.awaitSingle
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Sinks
@@ -92,25 +93,30 @@ class TcpClientConnectionPool {
                         .host(host)
                         .port(port)
                         .option(ChannelOption.SO_KEEPALIVE, true)
-                        .connectNow()
+                        .connect()
+                        .awaitSingle()
 
                     connections[key] = connection
                     sinks[key] = sink
                     log.info("[TCP Pool] 연결 성공: key=$key")
 
                     // persistent outbound — sink가 완료될 때까지 outboundDone 마킹 없음
-                    connection.outbound()
-                        .sendByteArray(sink.asFlux())
-                        .then()
-                        .subscribe(
-                            null,
-                            { e -> log.warn("[TCP Pool] 송신 오류 (key=$key): ${e.message}") }
-                        )
+                    scope.launch {
+                        runCatching {
+                            connection.outbound()
+                                .sendByteArray(sink.asFlux())
+                                .then()
+                                .awaitFirstOrNull()
+                        }.onFailure { e -> log.warn("[TCP Pool] 송신 오류 (key=$key): ${e.message}") }
+                    }
 
                     // 수신 데이터 drain
-                    connection.inbound().receive()
-                        .doOnNext { it.release() }
-                        .subscribe()
+                    scope.launch {
+                        connection.inbound().receive()
+                            .doOnNext { it.release() }
+                            .then()
+                            .awaitFirstOrNull()
+                    }
 
                     // 연결 수립 완료를 대기 중인 호출자에게 알림
                     currentDeferred.complete(connection)

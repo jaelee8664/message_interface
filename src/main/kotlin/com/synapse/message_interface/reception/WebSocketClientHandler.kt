@@ -57,17 +57,19 @@ class WebSocketClientHandler(
                                 if (!session.isOpen) break
 
                                 val pingSentAt = System.currentTimeMillis()
-                                session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
-                                    .doOnError { e ->
-                                        log.warn("[WebSocket Client] Ping 전송 실패: ${e.message}")
-                                        session.close().subscribe()
-                                    }
-                                    .subscribe()
+                                try {
+                                    session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
+                                        .awaitFirstOrNull()
+                                } catch (e: Exception) {
+                                    log.warn("[WebSocket Client] Ping 전송 실패: ${e.message}")
+                                    session.close().awaitFirstOrNull()
+                                    break
+                                }
 
                                 delay(definition.pongTimeoutSeconds * 1000L)
                                 if (lastPongTime.get() < pingSentAt) {
                                     log.warn("[WebSocket Client] Pong 미응답 (좀비 연결 감지), 강제 종료: unitId=${unit.id}")
-                                    session.close().subscribe()
+                                    session.close().awaitFirstOrNull()
                                     break
                                 }
                             }

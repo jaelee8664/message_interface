@@ -4,6 +4,11 @@ import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.engine.WorkflowDispatcher
 import com.synapse.message_interface.workflow.WorkflowRegistry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationRunner
 import org.springframework.context.annotation.Bean
@@ -26,6 +31,7 @@ class ReceptionManager(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val activeHandlers = ConcurrentHashMap<String, Any>() // unitId → handler
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Bean
     fun webSocketHandlerAdapter() = WebSocketHandlerAdapter()
@@ -93,7 +99,7 @@ class ReceptionManager(
             is KafkaConsumerHandler -> handler.stop()
         }
         // 서버 프로토콜 세션 정리 (unit 삭제 시)
-        sessionRegistry.getSession(unitId)?.close()?.subscribe()
+        sessionRegistry.getSession(unitId)?.let { if (it.isOpen) scope.launch { it.close().awaitFirstOrNull() } }
         tcpServerSessionRegistry.closeAll()
     }
 

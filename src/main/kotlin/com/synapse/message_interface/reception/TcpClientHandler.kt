@@ -16,6 +16,7 @@ import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
 import reactor.netty.Connection
 import reactor.netty.tcp.TcpClient
+import kotlinx.coroutines.reactive.awaitSingle
 
 class TcpClientHandler(
     private val unit: WorkflowUnit,
@@ -45,7 +46,8 @@ class TcpClientHandler(
                     .host(definition.host ?: "localhost")
                     .port(definition.port ?: 9091)
                     .option(ChannelOption.SO_KEEPALIVE, true)
-                    .connectNow()
+                    .connect()
+                    .awaitSingle()
 
                 activeConnection = connection
                 connectionRegistry.register(unit.id, connection)

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useHistoryStore, HistoryEntry } from '../store/historyStore'
 import { useWorkflowStore } from '../store/workflowStore'
+import DiffModal from './DiffModal'
 
 export default function HistoryDrawer() {
-  const { entries, isOpen, loading, error, closeDrawer, fetchHistory, rollback } = useHistoryStore()
+  const { entries, isOpen, loading, error, closeDrawer, fetchHistory, rollback, openDiff, diffLoading } = useHistoryStore()
   const { fetchUnits } = useWorkflowStore()
   const [rollbackTarget, setRollbackTarget] = useState<number | null>(null)
   const [modifiedBy, setModifiedBy] = useState('')
@@ -47,12 +48,9 @@ export default function HistoryDrawer() {
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/30 z-40" onClick={closeDrawer} />
 
-      {/* Drawer */}
       <div className="fixed right-0 top-0 h-full w-[420px] bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <div>
             <div className="text-base font-semibold text-white">수정 히스토리</div>
@@ -61,7 +59,6 @@ export default function HistoryDrawer() {
           <button onClick={closeDrawer} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center h-32 text-slate-400 text-sm">로딩 중...</div>
@@ -74,6 +71,7 @@ export default function HistoryDrawer() {
               key={entry.version}
               entry={entry}
               isRollbackTarget={rollbackTarget === entry.version}
+              diffLoading={diffLoading}
               onRollbackClick={() => {
                 setRollbackTarget(entry.version)
                 setRollbackError(null)
@@ -81,6 +79,7 @@ export default function HistoryDrawer() {
                 setPassword('')
               }}
               onRollbackCancel={() => setRollbackTarget(null)}
+              onDiffClick={() => openDiff(entry.version)}
               modifiedBy={modifiedBy}
               password={password}
               onModifiedByChange={setModifiedBy}
@@ -97,6 +96,8 @@ export default function HistoryDrawer() {
           <div className="px-5 py-3 border-t border-slate-700 text-xs text-red-400">{error}</div>
         )}
       </div>
+
+      <DiffModal />
     </>
   )
 }
@@ -104,8 +105,10 @@ export default function HistoryDrawer() {
 interface CardProps {
   entry: HistoryEntry
   isRollbackTarget: boolean
+  diffLoading: boolean
   onRollbackClick: () => void
   onRollbackCancel: () => void
+  onDiffClick: () => void
   modifiedBy: string
   password: string
   onModifiedByChange: (v: string) => void
@@ -117,26 +120,23 @@ interface CardProps {
 }
 
 function HistoryEntryCard({
-  entry, isRollbackTarget, onRollbackClick, onRollbackCancel,
+  entry, isRollbackTarget, diffLoading,
+  onRollbackClick, onRollbackCancel, onDiffClick,
   modifiedBy, password, onModifiedByChange, onPasswordChange,
   rollbackError, rollbackLoading, onRollbackConfirm, formatDate,
 }: CardProps) {
   return (
     <div className={`border-b border-slate-800 transition-colors ${isRollbackTarget ? 'bg-blue-950/30' : 'hover:bg-slate-800/50'}`}>
-      {/* Entry header */}
       <div className="flex items-start gap-3 px-5 py-4">
-        {/* Version badge */}
         <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 shrink-0">
           v{entry.version}
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm font-medium text-white truncate">{entry.modifiedBy}</span>
             <span className="text-xs text-slate-500 shrink-0">{formatDate(entry.modifiedAt)}</span>
           </div>
-          {/* Unit list in this version */}
           <div className="flex flex-wrap gap-1 mt-1">
             {entry.tree.units.slice(0, 5).map((u) => (
               <span key={u.id} className="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-300 truncate max-w-[140px]">
@@ -154,22 +154,29 @@ function HistoryEntryCard({
           </div>
         </div>
 
-        {/* Rollback button */}
         {!isRollbackTarget && (
-          <button
-            onClick={onRollbackClick}
-            className="shrink-0 px-2.5 py-1 text-xs rounded border border-amber-600/50 text-amber-400 hover:bg-amber-600/10 transition-colors"
-          >
-            롤백
-          </button>
+          <div className="flex gap-1.5 shrink-0">
+            <button
+              onClick={onDiffClick}
+              disabled={diffLoading}
+              className="px-2.5 py-1 text-xs rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400 disabled:opacity-40 transition-colors"
+            >
+              비교
+            </button>
+            <button
+              onClick={onRollbackClick}
+              className="px-2.5 py-1 text-xs rounded border border-amber-600/50 text-amber-400 hover:bg-amber-600/10 transition-colors"
+            >
+              복원
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Rollback auth form */}
       {isRollbackTarget && (
         <div className="px-5 pb-4 space-y-3">
           <div className="p-3 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
-            v{entry.version}으로 롤백합니다. 현재 상태는 히스토리로 저장됩니다.
+            v{entry.version}으로 복원합니다. 현재 상태는 히스토리로 저장됩니다.
           </div>
           <div className="flex gap-2">
             <input
@@ -200,7 +207,7 @@ function HistoryEntryCard({
               disabled={rollbackLoading || !modifiedBy || !password}
               className="flex-1 py-1.5 text-xs rounded bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
             >
-              {rollbackLoading ? '롤백 중...' : 'v' + entry.version + '으로 롤백'}
+              {rollbackLoading ? '복원 중...' : `v${entry.version}으로 복원`}
             </button>
           </div>
         </div>

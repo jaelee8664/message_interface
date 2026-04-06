@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.socket.WebSocketSession
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
-import reactor.core.publisher.Mono
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
@@ -102,7 +101,7 @@ class WebSocketClientRegistry {
         }
     }
 
-    fun send(key: String, data: ByteArray, format: MessageFormat) {
+    suspend fun send(key: String, data: ByteArray, format: MessageFormat) {
         val session = sessions[key]
             ?: throw IllegalStateException("WebSocket 연결 없음: $key")
         if (!session.isOpen) throw IllegalStateException("WebSocket 세션 닫힘: $key")
@@ -110,7 +109,7 @@ class WebSocketClientRegistry {
             MessageFormat.JSON, MessageFormat.XML ->
                 session.textMessage(String(data, Charsets.UTF_8))
         }
-        session.send(Mono.just(msg)).subscribe()
+        session.send(Mono.just(msg)).awaitFirstOrNull()
     }
 
     fun getAll(): Map<String, Boolean> = sessions.mapValues { (_, s) -> s.isOpen }
@@ -119,7 +118,7 @@ class WebSocketClientRegistry {
 
     fun remove(key: String) {
         reconnectFlags[key] = false   // 재연결 루프 중지
-        sessions.remove(key)?.let { if (it.isOpen) it.close().subscribe() }
+        sessions.remove(key)?.let { if (it.isOpen) scope.launch { it.close().awaitFirstOrNull() } }
         reconnectFlags.remove(key)
         reconnectDelays.remove(key)
     }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
 import org.springframework.web.reactive.socket.WebSocketHandler
@@ -53,17 +54,19 @@ class WebSocketServerHandler(
                     if (!session.isOpen) break
 
                     val pingSentAt = System.currentTimeMillis()
-                    session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
-                        .doOnError { e ->
-                            log.warn("[WebSocket Server] Ping 전송 실패: unitId=${unit.id}, ${e.message}")
-                            session.close().subscribe()
-                        }
-                        .subscribe()
+                    try {
+                        session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
+                            .awaitFirstOrNull()
+                    } catch (e: Exception) {
+                        log.warn("[WebSocket Server] Ping 전송 실패: unitId=${unit.id}, ${e.message}")
+                        session.close().awaitFirstOrNull()
+                        break
+                    }
 
                     delay(node0.pongTimeoutSeconds * 1000L)
                     if (lastPongTime.get() < pingSentAt) {
                         log.warn("[WebSocket Server] Pong 미응답 (좀비 연결 감지), 강제 종료: unitId=${unit.id}, sessionId=${session.id}")
-                        session.close().subscribe()
+                        session.close().awaitFirstOrNull()
                         break
                     }
                 }
