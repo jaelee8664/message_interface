@@ -4,6 +4,7 @@ import LogPage from './pages/LogPage'
 import ReferencePage from './pages/ReferencePage'
 import MonitoringPage from './pages/MonitoringPage'
 import DeadLetterPage from './pages/DeadLetterPage'
+import SimulatorPage from './pages/SimulatorPage'
 
 export default function App() {
   return (
@@ -60,6 +61,16 @@ export default function App() {
           >
             데드레터
           </NavLink>
+          <NavLink
+            to="/simulator"
+            className={({ isActive }) =>
+              `px-4 py-2 rounded text-sm font-medium transition-colors ${
+                isActive ? 'bg-green-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`
+            }
+          >
+            시뮬레이터
+          </NavLink>
         </nav>
         <main className="flex-1 overflow-hidden">
           <Routes>
@@ -68,6 +79,7 @@ export default function App() {
             <Route path="/reference" element={<ReferencePage />} />
             <Route path="/monitor" element={<MonitoringPage />} />
             <Route path="/dead-letters" element={<DeadLetterPage />} />
+            <Route path="/simulator" element={<SimulatorPage />} />
           </Routes>
         </main>
       </div>

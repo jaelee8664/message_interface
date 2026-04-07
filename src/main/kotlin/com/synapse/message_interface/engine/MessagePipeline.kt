@@ -56,55 +56,59 @@ class MessagePipeline(
     /**
      * Execute the node pipeline for a given WorkflowUnit by traversing the edge graph.
      *
+     * [traceCollector] — optional simulation trace collector. When non-null (simulation mode):
+     *   - per-node input/output snapshots and timing are recorded inline
+     *   - dead letter saving is skipped (simulated failures are not real events)
+     *   All traceCollector operations are no-ops when null — zero overhead in production.
+     *
      * Error response priority:
      * 1. If the failing node has its own [WorkflowNode.errorResponse] → use it.
      * 2. Otherwise → use NODE5's [com.synapse.message_interface.domain.node.Node5Definition.defaultErrorConfig].
-     *
-     * NODE5 is optional. A unit without NODE5 simply produces no response body
-     * (and re-throws any uncaught exception to the reception handler).
      */
-    suspend fun execute(context: MessageContext, unit: WorkflowUnit): PipelineResult {
+    suspend fun execute(
+        context: MessageContext,
+        unit: WorkflowUnit,
+        traceCollector: SimulationTraceCollector? = null
+    ): PipelineResult {
         val startNode = findStartNode(unit) ?: return PipelineResult(null)
         val state = PipelineState(rawBytes = context.rawBytes)
 
         return try {
-            traverseForward(startNode.id, context, unit, state, mutableSetOf())
+            traverseForward(startNode.id, context, unit, state, mutableSetOf(), traceCollector)
         } catch (e: Exception) {
             val nodeEx = e as? NodeException
-            deadLetterStore.save(DeadLetterEntry(
-                traceId = context.traceId,
-                workflowUnitId = unit.id,
-                workflowUnitName = unit.name,
-                protocol = context.protocol,
-                endpoint = context.endpoint,
-                metadata = context.metadata,
-                rawBytesBase64 = Base64.getEncoder().encodeToString(context.rawBytes),
-                failedNodeType = nodeEx?.failedNode?.nodeType?.name,
-                errorMessage = (nodeEx?.originalException ?: e).message,
-                timestamp = Instant.now()
-            ))
+
+            // Skip dead letter saving in simulation mode — simulated failures are not real events
+            if (traceCollector == null) {
+                deadLetterStore.save(DeadLetterEntry(
+                    traceId = context.traceId,
+                    workflowUnitId = unit.id,
+                    workflowUnitName = unit.name,
+                    protocol = context.protocol,
+                    endpoint = context.endpoint,
+                    metadata = context.metadata,
+                    rawBytesBase64 = Base64.getEncoder().encodeToString(context.rawBytes),
+                    failedNodeType = nodeEx?.failedNode?.nodeType?.name,
+                    errorMessage = (nodeEx?.originalException ?: e).message,
+                    timestamp = Instant.now()
+                ))
+            }
 
             val node5 = unit.nodes.firstOrNull { it.nodeType == NodeType.NODE5 && it.node5 != null }
             if (node5 != null) {
-                // Resolve error response: per-node override takes priority over NODE5 default
-                val nodeEx = e as? NodeException
                 val errorResponse: NodeErrorResponse =
                     nodeEx?.failedNode?.errorResponse ?: node5.node5!!.defaultErrorConfig
                 val originalEx: Exception = nodeEx?.originalException ?: e
 
                 val errorResult = node5Executor.executeError(state.currentMap, errorResponse, originalEx)
-                // Log the actual error response being returned to the caller
                 if (errorResult.outputMap != null) {
                     logError(context, unit.id, unit.name, NodeType.NODE5, originalEx, errorResult.outputMap)
                 }
 
-                // Traverse NODE5's outgoing edges as side effects (e.g. NODE5 → NODE4)
-                // Failures here must not override the already-built error response
                 unit.edges.firstOrNull { it.sourceNodeId == node5.id }?.let { edge ->
                     try {
-                        // Update state with NODE5's error output map so downstream NODE4 serializes the NODE5 DTO
                         if (errorResult.outputMap != null) state.currentMap = errorResult.outputMap.toMutableMap()
-                        traverseForward(edge.targetNodeId, context, unit, state, mutableSetOf())
+                        traverseForward(edge.targetNodeId, context, unit, state, mutableSetOf(), traceCollector)
                     } catch (sideEffectEx: Exception) {
                         logError(context, unit.id, unit.name, NodeType.NODE5, sideEffectEx)
                     }
@@ -112,16 +116,13 @@ class MessagePipeline(
 
                 errorResult
             } else {
-                throw e  // No NODE5 — no error response configured; propagate to reception handler
+                throw e
             }
         }
     }
 
     // ── Graph traversal ───────────────────────────────────────────────────────
 
-    /**
-     * Entry node: prefers NODE0. Falls back to the node with no incoming forward edges.
-     */
     private fun findStartNode(unit: WorkflowUnit): WorkflowNode? {
         val targetIds = unit.edges.map { it.targetNodeId }.toSet()
         return unit.nodes.firstOrNull { it.nodeType == NodeType.NODE0 }
@@ -133,9 +134,10 @@ class MessagePipeline(
         context: MessageContext,
         unit: WorkflowUnit,
         state: PipelineState,
-        visited: MutableSet<String>
+        visited: MutableSet<String>,
+        traceCollector: SimulationTraceCollector? = null
     ): PipelineResult {
-        if (nodeId in visited) return PipelineResult(null)   // cycle protection
+        if (nodeId in visited) return PipelineResult(null)
         visited.add(nodeId)
 
         val node = unit.nodes.find { it.id == nodeId } ?: return PipelineResult(null)
@@ -143,46 +145,116 @@ class MessagePipeline(
         val nodeResult: PipelineResult = when (node.nodeType) {
 
             NodeType.NODE0 -> {
-                // Log the raw incoming message at the reception boundary
                 val snippet = context.parsedMessage
                     ?.entries?.take(20)?.associate { it.key to it.value }
                     ?: emptyMap()
                 logSuccess(context, unit.id, unit.name, node.nodeType, snippet)
+                traceCollector?.record(SimulationNodeTrace(
+                    nodeId = node.id,
+                    nodeType = node.nodeType.name,
+                    status = SimulationTraceStatus.SUCCESS,
+                    durationMs = 0,
+                    inputSnapshot = null,
+                    outputSnapshot = snippet
+                ))
                 PipelineResult(null)
             }
 
             NodeType.NODE1 -> {
                 if (node.node1 != null) {
+                    val inputSnapshot = traceCollector?.let { state.currentMap.toMap() }
+                    val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
-                        // Only use pre-parsed context message for the first NODE1 (no prior processing).
-                        // Subsequent NODE1 nodes (e.g. parsing a NODE4 response) must parse state.rawBytes fresh.
                         val preParsed = if (state.currentMap.isEmpty()) context.parsedMessage else null
                         state.currentMap = node1Executor.execute(state.rawBytes, node.node1, preParsed)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.SUCCESS,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = state.currentMap.toMap()
+                        ))
+                    } catch (e: Exception) {
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.ERROR,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = null,
+                            errorMessage = e.message
+                        ))
+                        throw wrapAndLog(e, node, context, unit.id, unit.name)
+                    }
                 }
                 PipelineResult(null)
             }
 
             NodeType.NODE2 -> {
                 if (node.node2 != null) {
+                    val inputSnapshot = traceCollector?.let { state.currentMap.toMap() }
+                    val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
                         state.currentMap = node2Executor.execute(state.currentMap, node.node2)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.SUCCESS,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = state.currentMap.toMap()
+                        ))
+                    } catch (e: Exception) {
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.ERROR,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = null,
+                            errorMessage = e.message
+                        ))
+                        throw wrapAndLog(e, node, context, unit.id, unit.name)
+                    }
                 }
                 PipelineResult(null)
             }
 
             NodeType.NODE3 -> {
                 if (node.node3 != null) {
+                    val inputSnapshot = traceCollector?.let { state.currentMap.toMap() }
+                    val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
                         state.currentMap = node3Executor.execute(state.currentMap, node.node3)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.SUCCESS,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = state.currentMap.toMap()
+                        ))
+                    } catch (e: Exception) {
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.ERROR,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = null,
+                            errorMessage = e.message
+                        ))
+                        throw wrapAndLog(e, node, context, unit.id, unit.name)
+                    }
                 }
                 PipelineResult(null)
             }
 
             NodeType.NODE4 -> {
                 if (node.node4 != null) {
+                    val inputSnapshot = traceCollector?.let { state.currentMap.toMap() }
+                    val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
                         val responseBytes = node4Executor.execute(state.currentMap, node.node4, context)
                         logSuccess(
@@ -190,39 +262,73 @@ class MessagePipeline(
                             protocol = node.node4.protocol.name,
                             targetInfo = buildTargetInfo(node.node4, context)
                         )
-                        if (responseBytes != null) {
-                            state.rawBytes = responseBytes
-                        }
+                        if (responseBytes != null) state.rawBytes = responseBytes
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.SUCCESS,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = null,
+                            rawResponse = responseBytes?.toString(Charsets.UTF_8)
+                        ))
                         PipelineResult(responseBytes)
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
+                    } catch (e: Exception) {
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.ERROR,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = null,
+                            errorMessage = e.message
+                        ))
+                        throw wrapAndLog(e, node, context, unit.id, unit.name)
+                    }
                 } else PipelineResult(null)
             }
 
             NodeType.NODE5 -> {
                 if (node.node5 != null) {
+                    val inputSnapshot = traceCollector?.let { state.currentMap.toMap() }
+                    val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
                         val result = node5Executor.executeSuccess(state.currentMap, node.node5)
-                        // Log NODE5 only for REST_SERVER: it directly sends the HTTP response.
-                        // For other protocols (TCP, WebSocket, etc.) NODE5 just formats the body;
-                        // NODE4 handles the actual transmission and is already logged.
                         if (result.body != null && result.outputMap != null &&
                             context.protocol == ProtocolType.REST_SERVER.name) {
                             logSuccess(context, unit.id, unit.name, node.nodeType, result.outputMap)
                         }
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.SUCCESS,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = result.outputMap,
+                            rawResponse = result.body?.toString(Charsets.UTF_8)
+                        ))
                         result
-                    } catch (e: Exception) { throw wrapAndLog(e, node, context, unit.id, unit.name) }
+                    } catch (e: Exception) {
+                        traceCollector?.record(SimulationNodeTrace(
+                            nodeId = node.id,
+                            nodeType = node.nodeType.name,
+                            status = SimulationTraceStatus.ERROR,
+                            durationMs = System.currentTimeMillis() - startMs,
+                            inputSnapshot = inputSnapshot,
+                            outputSnapshot = null,
+                            errorMessage = e.message
+                        ))
+                        throw wrapAndLog(e, node, context, unit.id, unit.name)
+                    }
                 } else PipelineResult(null)
             }
         }
 
-        // NODE5: run downstream edges as side effects (e.g. NODE5 → NODE4 for additional delivery),
-        // but always return NODE5's own result as the authoritative server response.
         if (node.nodeType == NodeType.NODE5) {
             unit.edges.firstOrNull { it.sourceNodeId == nodeId }?.let { edge ->
                 try {
-                    // Update state with NODE5's output map so downstream NODE4 serializes the NODE5 DTO
                     if (nodeResult.outputMap != null) state.currentMap = nodeResult.outputMap.toMutableMap()
-                    traverseForward(edge.targetNodeId, context, unit, state, visited)
+                    traverseForward(edge.targetNodeId, context, unit, state, visited, traceCollector)
                 } catch (e: Exception) {
                     logError(context, unit.id, unit.name, node.nodeType, e)
                 }
@@ -230,22 +336,19 @@ class MessagePipeline(
             return nodeResult
         }
 
-        // All other nodes: follow outgoing edges — single edge continues sequentially,
-        // multiple edges execute in parallel (fan-out), each with its own state copy.
         val nextEdges = unit.edges.filter { it.sourceNodeId == nodeId }
         return when {
             nextEdges.isEmpty() -> nodeResult
             nextEdges.size == 1 -> {
-                val downstream = traverseForward(nextEdges[0].targetNodeId, context, unit, state, visited)
+                val downstream = traverseForward(nextEdges[0].targetNodeId, context, unit, state, visited, traceCollector)
                 if (downstream.body != null || downstream.httpStatus != 200) downstream else nodeResult
             }
             else -> coroutineScope {
                 val results = nextEdges.map { edge ->
                     async {
-                        traverseForward(edge.targetNodeId, context, unit, state.copy(), visited.toMutableSet())
+                        traverseForward(edge.targetNodeId, context, unit, state.copy(), visited.toMutableSet(), traceCollector)
                     }
                 }.map { it.await() }
-                // Return the first result that carries a response body or non-200 status
                 results.firstOrNull { it.body != null || it.httpStatus != 200 } ?: nodeResult
             }
         }
@@ -256,7 +359,6 @@ class MessagePipeline(
     private fun wrapAndLog(e: Exception, node: WorkflowNode, context: MessageContext, unitId: String, unitName: String): NodeException {
         val reported = if (!node.customErrorMessage.isNullOrBlank()) RuntimeException(node.customErrorMessage, e) else e
         logError(context, unitId, unitName, node.nodeType, reported)
-        // Keep 'e' as originalException so ResponseStatusException status can be derived correctly
         return NodeException(failedNode = node, originalException = e, cause = reported)
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -23,6 +23,9 @@ import WorkflowEdgeComponent from '../components/edges/WorkflowEdgeComponent'
 import WorkflowUnitList from '../components/WorkflowUnitList'
 import NodeSettingsPanel from '../components/panels/NodeSettingsPanel'
 import HistoryDrawer from '../components/HistoryDrawer'
+import SimTestDrawer, { UnitSimulationResult, type Node4NodeInfo } from '../components/simulator/SimTestDrawer'
+import SimTraceTimeline from '../components/simulator/SimTraceTimeline'
+import SimContext from '../context/SimContext'
 import { generateId } from '../utils/generateId'
 import { NodeType, WorkflowCondition, WorkflowEdge, WorkflowNode } from '../types/workflow'
 
@@ -40,12 +43,11 @@ const NODE_TYPE_OPTIONS: { type: NodeType; label: string; color: string }[] = [
 
 export default function WorkflowPage() {
   const { units, selectedUnitId, fetchUnits, saveUnit } = useWorkflowStore()
-  const { openPanel, registerDeleteHandler, registerUpdateHandler, registerUpdateConditionHandler } = usePanelStore()
+  const { openPanel, closePanel, registerDeleteHandler, registerUpdateHandler, registerUpdateConditionHandler } = usePanelStore()
   const { isOpen: historyOpen, openDrawer: openHistory } = useHistoryStore()
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [isDirty, setIsDirty] = useState(false)
-  // Condition edits from NODE0 panel — applied on canvas save
   const [pendingConditions, setPendingConditions] = useState<Record<string, WorkflowCondition>>({})
 
   const displayNodes = nodes
@@ -61,6 +63,63 @@ export default function WorkflowPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // ── Sim mode ──────────────────────────────────────────────────────────────────
+  const [simMode, setSimMode] = useState(false)
+  const [simResult, setSimResult] = useState<UnitSimulationResult | null>(null)
+  const [simActiveNodeId, setSimActiveNodeId] = useState<string | null>(null)
+
+  // Build trace map from sim result
+  const simTraceMap = useMemo(() => {
+    if (!simResult) return {}
+    return Object.fromEntries(simResult.nodeTraces.map(t => [t.nodeId, t]))
+  }, [simResult])
+
+  // Build edge snapshot map: edgeId → source node's outputSnapshot
+  const simEdgeSnapshotMap = useMemo(() => {
+    if (!simResult) return {}
+    const traceByNodeId = Object.fromEntries(simResult.nodeTraces.map(t => [t.nodeId, t]))
+    const result: Record<string, Record<string, unknown> | null> = {}
+    for (const edge of edges) {
+      const sourceTrace = traceByNodeId[(edge as any).source]
+      if (sourceTrace?.outputSnapshot) {
+        result[edge.id] = sourceTrace.outputSnapshot as Record<string, unknown>
+      }
+    }
+    return result
+  }, [simResult, edges])
+
+  // NODE4 nodes of the currently selected unit — passed to SimTestDrawer
+  const node4Nodes = useMemo((): Node4NodeInfo[] => {
+    const unit = units.find(u => u.id === selectedUnitId)
+    if (!unit) return []
+    return unit.nodes
+      .filter(n => n.nodeType === 'NODE4' && n.node4)
+      .map(n => ({
+        nodeId: n.id,
+        label: `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`,
+        currentHost: n.node4!.targetHost,
+        currentPort: n.node4!.targetPort,
+      }))
+  }, [units, selectedUnitId])
+
+  const simContextValue = useMemo(() => ({
+    traceMap: simTraceMap,
+    edgeSnapshotMap: simEdgeSnapshotMap,
+    activeNodeId: simActiveNodeId,
+  }), [simTraceMap, simEdgeSnapshotMap, simActiveNodeId])
+
+  function handleSimResult(result: UnitSimulationResult | null) {
+    setSimResult(result)
+    setSimActiveNodeId(null)
+  }
+
+  function closeSimMode() {
+    setSimMode(false)
+    setSimResult(null)
+    setSimActiveNodeId(null)
+  }
+
+  // ── Workflow load ──────────────────────────────────────────────────────────────
   useEffect(() => { fetchUnits() }, [])
 
   useEffect(() => {
@@ -72,21 +131,22 @@ export default function WorkflowPage() {
     })
     setNodes(n)
     setEdges(e)
+    // Clear sim state when switching units
+    setSimResult(null)
+    setSimActiveNodeId(null)
   }, [selectedUnitId, units])
 
-  // ── Delete node (called from NodeSettingsPanel) ──
+  // ── Node/edge handlers ────────────────────────────────────────────────────────
   const handleDeleteNode = useCallback((nodeId: string) => {
     setNodes((ns) => ns.filter((n) => n.id !== nodeId))
     setEdges((es) => es.filter((e) => e.source !== nodeId && e.target !== nodeId))
     setIsDirty(true)
   }, [setNodes, setEdges])
 
-  // Register delete handler so NodeSettingsPanel can call it
   useEffect(() => {
     registerDeleteHandler(handleDeleteNode)
   }, [handleDeleteNode, registerDeleteHandler])
 
-  // ── Update node definition from panel (no per-node save; uses global save) ──
   const handleUpdateNode = useCallback((updatedNode: any) => {
     setNodes((ns) => ns.map((n) => {
       if (n.id !== updatedNode.id) return n
@@ -121,7 +181,6 @@ export default function WorkflowPage() {
     setIsDirty(true)
   }, [setEdges])
 
-  // Re-attach callbacks whenever they update (so edge data always has fresh refs)
   useEffect(() => {
     setEdges((eds) =>
       eds.map((e) => ({
@@ -170,15 +229,18 @@ export default function WorkflowPage() {
   }
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: any) => {
+    // In sim mode, clicking a node with a trace highlights it in the timeline
+    if (simMode && simTraceMap[node.id]) {
+      setSimActiveNodeId(node.id)
+      return
+    }
+
     const unit = units.find((u) => u.id === selectedUnitId)
     if (!unit) return
-    // Prefer node.data.workflowNode (kept up-to-date by handleUpdateNode) over units store
     const workflowNode: WorkflowNode = node.data?.workflowNode
       ?? unit.nodes.find((n: any) => n.id === node.id)
       ?? { id: node.id, nodeType: node.data?.nodeType as NodeType, position: node.position }
     if (!workflowNode) return
-    // Build live unit: canvas nodes include unsaved panel edits (e.g. NODE1 fields just confirmed),
-    // fallback to store for nodes that have never been opened in the panel.
     const savedNodeById = new Map(unit.nodes.map(n => [n.id, n]))
     const liveNodes = (nodes as any[]).map(fn => {
       const wn = fn.data?.workflowNode as WorkflowNode | undefined
@@ -194,9 +256,8 @@ export default function WorkflowPage() {
     }))
     const liveCondition = pendingConditions[unit.id] ?? unit.condition
     openPanel(workflowNode, { ...unit, condition: liveCondition, nodes: liveNodes, edges: liveEdges })
-  }, [units, selectedUnitId, openPanel, nodes, edges])
+  }, [units, selectedUnitId, openPanel, nodes, edges, simMode, simTraceMap])
 
-  // ── Add node to canvas ──
   const handleAddNode = useCallback((nodeType: NodeType) => {
     setShowAddNodeMenu(false)
     const id = generateId('n')
@@ -224,7 +285,6 @@ export default function WorkflowPage() {
     setIsDirty(true)
   }, [selectedUnitId, setNodes])
 
-  // Close add-node menu on outside click
   useEffect(() => {
     if (!showAddNodeMenu) return
     const handler = (e: MouseEvent) => {
@@ -236,7 +296,7 @@ export default function WorkflowPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showAddNodeMenu])
 
-  // ── Save canvas changes ──
+  // ── Canvas save ───────────────────────────────────────────────────────────────
   const handleSaveCanvas = async () => {
     if (!saveBy || !savePassword) { setSaveError('이름과 비밀번호를 입력해 주세요.'); return }
     const unit = units.find((u) => u.id === selectedUnitId)
@@ -273,7 +333,7 @@ export default function WorkflowPage() {
     <div className="flex h-full">
       <WorkflowUnitList />
 
-      <div className="flex-1 relative flex flex-col">
+      <div className="flex-1 relative flex flex-col min-w-0">
         {/* Canvas toolbar */}
         {selectedUnitId && (
           <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
@@ -282,6 +342,25 @@ export default function WorkflowPage() {
                 미저장 변경사항
               </span>
             )}
+
+            {/* Test mode toggle */}
+            <button
+              onClick={() => {
+                if (simMode) {
+                  closeSimMode()
+                } else {
+                  closePanel()
+                  setSimMode(true)
+                }
+              }}
+              className={`px-3 py-1.5 text-xs rounded font-medium border transition-colors ${
+                simMode
+                  ? 'bg-green-700 hover:bg-green-800 text-white border-green-600'
+                  : 'bg-slate-700 hover:bg-slate-600 text-white border-slate-600'
+              }`}
+            >
+              {simMode ? '▶ 테스트 중' : '▶ 테스트'}
+            </button>
 
             {/* Add Node dropdown */}
             <div className="relative" ref={addNodeMenuRef}>
@@ -335,23 +414,25 @@ export default function WorkflowPage() {
         )}
 
         {selectedUnitId ? (
-          <ReactFlow
-            nodes={displayNodes as any}
-            edges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={onConnect}
-            onNodeClick={onNodeClick}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            fitView
-            className="bg-slate-900 flex-1"
-            deleteKeyCode={['Backspace', 'Delete']}
-          >
-            <Background variant={BackgroundVariant.Dots} color="#334155" gap={20} />
-            <Controls className="bg-slate-800 border-slate-600" />
-            <MiniMap className="bg-slate-800" nodeColor="#475569" />
-          </ReactFlow>
+          <SimContext.Provider value={simContextValue}>
+            <ReactFlow
+              nodes={displayNodes as any}
+              edges={edges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={onNodeClick}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              fitView
+              className="bg-slate-900 flex-1"
+              deleteKeyCode={['Backspace', 'Delete']}
+            >
+              <Background variant={BackgroundVariant.Dots} color="#334155" gap={20} />
+              <Controls className="bg-slate-800 border-slate-600" />
+              <MiniMap className="bg-slate-800" nodeColor="#475569" />
+            </ReactFlow>
+          </SimContext.Provider>
         ) : (
           <div className="flex-1 flex items-center justify-center text-slate-500">
             <div className="text-center">
@@ -366,9 +447,33 @@ export default function WorkflowPage() {
             </div>
           </div>
         )}
+
+        {/* Test mode bottom drawer */}
+        {simMode && selectedUnitId && (
+          <SimTestDrawer
+            unitId={selectedUnitId}
+            node4Nodes={node4Nodes}
+            onResult={handleSimResult}
+            onClose={closeSimMode}
+          />
+        )}
       </div>
 
-      {/* Node settings panel (right slide-in) */}
+      {/* Trace timeline — right panel, shown after execution */}
+      {simResult && (
+        <SimTraceTimeline
+          traces={simResult.nodeTraces}
+          success={simResult.success}
+          durationMs={simResult.durationMs}
+          errorMessage={simResult.errorMessage}
+          response={simResult.response}
+          activeNodeId={simActiveNodeId}
+          onNodeClick={setSimActiveNodeId}
+          onClose={() => setSimResult(null)}
+        />
+      )}
+
+      {/* Node settings panel (right slide-in overlay) */}
       <NodeSettingsPanel />
 
       {/* History drawer (right slide-in) */}

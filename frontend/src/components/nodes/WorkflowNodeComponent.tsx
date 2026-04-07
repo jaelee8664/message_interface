@@ -1,4 +1,5 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { useSimContext } from '../../context/SimContext'
 
 interface WorkflowNodeData {
   nodeType: string
@@ -6,18 +7,30 @@ interface WorkflowNodeData {
   color: string
   definition: any
   unitId: string
-
 }
 
-export default function WorkflowNodeComponent({ data, selected }: NodeProps) {
+export default function WorkflowNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as WorkflowNodeData
+  const { traceMap, activeNodeId } = useSimContext()
+  const trace = traceMap[id]
+  const isActive = activeNodeId === id
+  const isError = trace?.status === 'ERROR'
+
   return (
     <div
-      className="rounded-lg border-2 p-3 min-w-[200px] cursor-pointer"
+      className="rounded-lg border-2 p-3 min-w-[200px] cursor-pointer relative"
       style={{
-        borderColor: selected ? d.color : `${d.color}66`,
+        borderColor: isActive
+          ? '#facc15'
+          : trace
+            ? (isError ? '#f87171' : '#4ade80')
+            : selected ? d.color : `${d.color}66`,
         background: '#1e293b',
-        boxShadow: selected ? `0 0 12px ${d.color}88` : 'none',
+        boxShadow: isActive
+          ? '0 0 14px #facc1566'
+          : trace
+            ? (isError ? '0 0 8px #f8717133' : '0 0 8px #4ade8033')
+            : selected ? `0 0 12px ${d.color}88` : 'none',
       }}
     >
       <Handle type="target" position={Position.Left} style={{ background: d.color }} />
@@ -44,6 +57,18 @@ export default function WorkflowNodeComponent({ data, selected }: NodeProps) {
         )
       })()}
       <Handle type="source" position={Position.Right} style={{ background: d.color }} />
+
+      {/* Sim trace badge */}
+      {trace && (
+        <div
+          className={`absolute -top-2.5 -right-2.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-semibold shadow-lg pointer-events-none ${
+            isError ? 'bg-red-600 text-white' : 'bg-green-600 text-white'
+          }`}
+        >
+          <span>{isError ? '✕' : '✓'}</span>
+          <span>{trace.durationMs}ms</span>
+        </div>
+      )}
     </div>
   )
 }
