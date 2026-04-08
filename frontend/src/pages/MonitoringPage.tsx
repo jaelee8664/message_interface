@@ -3,8 +3,7 @@ import axios from 'axios'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface TcpServerSession { channelId: string; remoteAddress: string | null }
-interface WsSession { unitId: string; unitName: string; isOpen: boolean }
+interface ServerSession { clientIp: string; sessionCount: number; allActive: boolean }
 interface ClientConnection { key: string; connected: boolean }
 interface UnitStat {
   unitId: string
@@ -14,8 +13,8 @@ interface UnitStat {
   lastActivity: string | null
 }
 interface ConnectionStatus {
-  tcpServer: TcpServerSession[]
-  webSocketServer: WsSession[]
+  tcpServer: ServerSession[]
+  webSocketServer: ServerSession[]
   webSocketClient: ClientConnection[]
   tcpClient: ClientConnection[]
 }
@@ -39,7 +38,8 @@ function formatTime(iso: string) {
 }
 
 function totalConnections(c: ConnectionStatus) {
-  return c.tcpServer.length + c.webSocketServer.filter(s => s.isOpen).length
+  return c.tcpServer.filter(s => s.allActive).length
+    + c.webSocketServer.filter(s => s.allActive).length
     + c.webSocketClient.filter(s => s.connected).length
     + c.tcpClient.filter(s => s.connected).length
 }
@@ -191,7 +191,7 @@ export default function MonitoringPage() {
             <SummaryCard
               label="활성 연결 (전체)"
               value={totalConnections(status.connections)}
-              sub={`TCP서버 ${conn!.tcpServer.length} · WS서버 ${conn!.webSocketServer.filter(s=>s.isOpen).length} · WS클라 ${conn!.webSocketClient.filter(s=>s.connected).length} · TCP클라 ${conn!.tcpClient.filter(s=>s.connected).length}`}
+              sub={`TCP서버 ${conn!.tcpServer.filter(s=>s.allActive).length} · WS서버 ${conn!.webSocketServer.filter(s=>s.allActive).length} · WS클라 ${conn!.webSocketClient.filter(s=>s.connected).length} · TCP클라 ${conn!.tcpClient.filter(s=>s.connected).length}`}
             />
             <SummaryCard
               label={`성공 처리 (최근 ${windowMinutes < 60 ? windowMinutes + '분' : windowMinutes / 60 + 'h'})`}
@@ -218,26 +218,44 @@ export default function MonitoringPage() {
           {/* Connection details */}
           <h2 className="text-sm font-semibold text-slate-400 mb-3">연결 상태</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
-            <ConnectionSection
-              title="TCP 서버 세션"
-              items={conn!.tcpServer}
-              renderRow={(s: TcpServerSession, i) => (
-                <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
-                  <StatusDot active={true} />
-                  <span className="text-slate-400 font-mono">{s.remoteAddress ?? s.channelId}</span>
-                  <span className="text-slate-600 font-mono ml-auto truncate max-w-[120px]">{s.channelId}</span>
-                </li>
-              )}
-            />
+            <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700">
+                <span className="text-sm font-semibold text-slate-200">TCP 서버 세션</span>
+                <span className="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300">{conn!.tcpServer.length}</span>
+              </div>
+              {conn!.tcpServer.length === 0
+                ? <p className="text-xs text-slate-500 px-4 py-3">연결 없음</p>
+                : <ul className="divide-y divide-slate-700/60">
+                    {conn!.tcpServer.map((s: ServerSession, i) => (
+                      <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
+                        <StatusDot active={s.allActive} />
+                        <span className="text-slate-300 font-mono">{s.clientIp}</span>
+                        {s.sessionCount > 1 && (
+                          <span className="text-slate-500 font-mono">×{s.sessionCount}</span>
+                        )}
+                        <span className={`ml-auto text-xs ${s.allActive ? 'text-green-400' : 'text-yellow-400'}`}>
+                          {s.allActive ? 'CONNECTED' : 'PARTIAL'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+              }
+              <p className="text-xs text-slate-600 px-4 py-2 border-t border-slate-700/60">
+                * 첫 메시지 수신 후 목록에 표시됩니다
+              </p>
+            </div>
             <ConnectionSection
               title="WebSocket 서버 세션"
               items={conn!.webSocketServer}
-              renderRow={(s: WsSession, i) => (
+              renderRow={(s: ServerSession, i) => (
                 <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
-                  <StatusDot active={s.isOpen} />
-                  <span className="text-slate-300">{s.unitName}</span>
-                  <span className={`ml-auto text-xs ${s.isOpen ? 'text-green-400' : 'text-red-400'}`}>
-                    {s.isOpen ? 'OPEN' : 'CLOSED'}
+                  <StatusDot active={s.allActive} />
+                  <span className="text-slate-300 font-mono">{s.clientIp}</span>
+                  {s.sessionCount > 1 && (
+                    <span className="text-slate-500 font-mono">×{s.sessionCount}</span>
+                  )}
+                  <span className={`ml-auto text-xs ${s.allActive ? 'text-green-400' : 'text-yellow-400'}`}>
+                    {s.allActive ? 'CONNECTED' : 'PARTIAL'}
                   </span>
                 </li>
               )}
@@ -255,19 +273,26 @@ export default function MonitoringPage() {
                 </li>
               )}
             />
-            <ConnectionSection
-              title="TCP 클라이언트"
-              items={conn!.tcpClient}
-              renderRow={(s: ClientConnection, i) => (
-                <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
-                  <StatusDot active={s.connected} />
-                  <span className="text-slate-300 font-mono truncate">{s.key}</span>
-                  <span className={`ml-auto text-xs ${s.connected ? 'text-green-400' : 'text-red-400'}`}>
-                    {s.connected ? 'CONNECTED' : 'DISCONNECTED'}
-                  </span>
-                </li>
-              )}
-            />
+            <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700">
+                <span className="text-sm font-semibold text-slate-200">TCP 클라이언트</span>
+                <span className="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300">{conn!.tcpClient.length}</span>
+              </div>
+              {conn!.tcpClient.length === 0
+                ? <p className="text-xs text-slate-500 px-4 py-3">연결 없음</p>
+                : <ul className="divide-y divide-slate-700/60">
+                    {conn!.tcpClient.map((s: ClientConnection, i) => (
+                      <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
+                        <StatusDot active={s.connected} />
+                        <span className="text-slate-300 font-mono truncate">{s.key}</span>
+                        <span className={`ml-auto text-xs ${s.connected ? 'text-green-400' : 'text-red-400'}`}>
+                          {s.connected ? 'CONNECTED' : 'DISCONNECTED'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+              }
+            </div>
           </div>
 
           {/* Pipeline stats table */}

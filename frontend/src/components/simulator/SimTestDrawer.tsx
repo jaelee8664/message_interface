@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SimulationNodeTrace } from './PipelineTraceView'
 
 export interface UnitSimulationResult {
@@ -13,16 +13,10 @@ export interface UnitSimulationResult {
 export interface Node4NodeInfo {
   nodeId: string
   label: string        // e.g. "REST_CLIENT → 192.168.0.10:8080"
+  protocol: string
   currentHost?: string
   currentPort?: number
 }
-
-const PROTOCOLS = [
-  'REST_SERVER', 'REST_CLIENT',
-  'WEBSOCKET_SERVER', 'WEBSOCKET_CLIENT',
-  'TCP_SERVER', 'TCP_CLIENT',
-  'KAFKA_CONSUMER', 'KAFKA_PUBLISHER',
-]
 
 interface Props {
   unitId: string
@@ -31,15 +25,76 @@ interface Props {
   onClose: () => void
 }
 
+const MIN_HEIGHT = 150
+const MAX_HEIGHT = 600
+const DEFAULT_HEIGHT = 210
+
 export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }: Props) {
   const [message, setMessage] = useState('{}')
   const [format, setFormat] = useState('JSON')
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [protocol, setProtocol] = useState('REST_SERVER')
-  const [endpoint, setEndpoint] = useState('')
-  // nodeId → { host, port } — only for nodes where user typed something
   const [node4Overrides, setNode4Overrides] = useState<Record<string, { host: string; port: string }>>({})
   const [running, setRunning] = useState(false)
+
+  // Vertical resize (top edge)
+  const [height, setHeight] = useState(DEFAULT_HEIGHT)
+  const vDraggingRef = useRef(false)
+  const vStartYRef = useRef(0)
+  const vStartHeightRef = useRef(0)
+
+  function onVDragStart(e: React.MouseEvent) {
+    e.preventDefault()
+    vDraggingRef.current = true
+    vStartYRef.current = e.clientY
+    vStartHeightRef.current = height
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  // Horizontal resize (between left controls and message)
+  const [leftWidth, setLeftWidth] = useState(208)
+  const hDraggingRef = useRef(false)
+  const hStartXRef = useRef(0)
+  const hStartWidthRef = useRef(0)
+
+  function onHDragStart(e: React.MouseEvent) {
+    e.preventDefault()
+    hDraggingRef.current = true
+    hStartXRef.current = e.clientX
+    hStartWidthRef.current = leftWidth
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (vDraggingRef.current) {
+        const delta = vStartYRef.current - e.clientY
+        setHeight(h => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, vStartHeightRef.current + delta)))
+      }
+      if (hDraggingRef.current) {
+        const delta = e.clientX - hStartXRef.current
+        setLeftWidth(w => Math.min(480, Math.max(120, hStartWidthRef.current + delta)))
+      }
+    }
+    const onUp = () => {
+      if (vDraggingRef.current) {
+        vDraggingRef.current = false
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+      if (hDraggingRef.current) {
+        hDraggingRef.current = false
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [])
 
   function setOverride(nodeId: string, field: 'host' | 'port', value: string) {
     setNode4Overrides(prev => ({
@@ -52,7 +107,6 @@ export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }:
     setRunning(true)
     onResult(null)
     try {
-      // Build node4Overrides payload — skip entries where both host and port are empty
       const overridesPayload = Object.fromEntries(
         Object.entries(node4Overrides)
           .filter(([_, v]) => v.host.trim() || v.port.trim())
@@ -72,8 +126,6 @@ export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }:
           unitId,
           message,
           format,
-          endpoint: endpoint || undefined,
-          protocol,
           node4Overrides: overridesPayload,
         }),
       })
@@ -94,7 +146,13 @@ export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }:
   }
 
   return (
-    <div className="border-t border-slate-700 bg-slate-900 shrink-0 flex flex-col" style={{ height: 196 }}>
+    <div className="border-t border-slate-700 bg-slate-900 shrink-0 flex flex-col" style={{ height }}>
+      {/* Vertical resize handle (top edge) */}
+      <div
+        className="h-1.5 cursor-row-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors shrink-0"
+        onMouseDown={onVDragStart}
+      />
+
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-1.5 border-b border-slate-700 shrink-0">
         <span className="text-xs font-semibold text-green-400">▶ 테스트 모드</span>
@@ -102,87 +160,62 @@ export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }:
         <button onClick={onClose} className="ml-auto text-slate-500 hover:text-slate-300 text-xs px-1">✕</button>
       </div>
 
-      <div className="flex gap-3 px-4 py-2.5 flex-1 overflow-hidden min-h-0">
+      <div className="flex px-4 py-2.5 flex-1 overflow-hidden min-h-0 gap-0">
         {/* Left: controls */}
-        <div className="flex flex-col gap-2 shrink-0 w-60 overflow-y-auto">
-          <div className="flex items-end gap-2">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">포맷</label>
-              <select
-                className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                value={format}
-                onChange={e => setFormat(e.target.value)}
-              >
-                <option>JSON</option>
-                <option>XML</option>
-              </select>
-            </div>
-            <button
-              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded border border-slate-600 hover:border-slate-400 transition-colors"
-              onClick={() => setShowAdvanced(v => !v)}
+        <div className="flex flex-col gap-2 shrink-0 overflow-y-auto" style={{ width: leftWidth }}>
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">포맷</label>
+            <select
+              className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+              value={format}
+              onChange={e => setFormat(e.target.value)}
             >
-              고급 {showAdvanced ? '▲' : '▼'}
-            </button>
+              <option>JSON</option>
+              <option>XML</option>
+            </select>
           </div>
 
-          {showAdvanced && (
-            <div className="flex flex-col gap-1.5">
-              <div>
-                <label className="block text-xs text-slate-400 mb-0.5">프로토콜</label>
-                <select
-                  className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                  value={protocol}
-                  onChange={e => setProtocol(e.target.value)}
-                >
-                  {PROTOCOLS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+          {/* NODE4 overrides — client protocols only (servers have no target address) */}
+          {node4Nodes.some(n => !n.protocol.endsWith('_SERVER')) && (
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">NODE4 오버라이드</label>
+              <p className="text-[10px] text-slate-500 mb-1">비워두면 워크플로우에 설정된 주소로 전송됩니다.</p>
+              <div className="space-y-1">
+                {node4Nodes.filter(n => !n.protocol.endsWith('_SERVER')).map(n => {
+                  const ov = node4Overrides[n.nodeId] ?? { host: '', port: '' }
+                  return (
+                    <div key={n.nodeId}>
+                      <div className="text-xs text-slate-500 truncate mb-0.5" title={n.label}>
+                        {n.label}
+                      </div>
+                      <div className="flex gap-1">
+                        <input
+                          className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+                          placeholder={n.currentHost ?? 'host'}
+                          value={ov.host}
+                          onChange={e => setOverride(n.nodeId, 'host', e.target.value)}
+                        />
+                        <input
+                          className="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+                          placeholder={n.currentPort != null ? String(n.currentPort) : 'port'}
+                          type="number"
+                          value={ov.port}
+                          onChange={e => setOverride(n.nodeId, 'port', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-0.5">엔드포인트</label>
-                <input
-                  className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                  placeholder="/api/example"
-                  value={endpoint}
-                  onChange={e => setEndpoint(e.target.value)}
-                />
-              </div>
-
-              {/* Per-NODE4 overrides */}
-              {node4Nodes.length > 0 && (
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">NODE4 오버라이드</label>
-                  <div className="space-y-1">
-                    {node4Nodes.map(n => {
-                      const ov = node4Overrides[n.nodeId] ?? { host: '', port: '' }
-                      return (
-                        <div key={n.nodeId}>
-                          <div className="text-xs text-slate-500 truncate mb-0.5" title={n.label}>
-                            {n.label}
-                          </div>
-                          <div className="flex gap-1">
-                            <input
-                              className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                              placeholder={n.currentHost ?? 'host'}
-                              value={ov.host}
-                              onChange={e => setOverride(n.nodeId, 'host', e.target.value)}
-                            />
-                            <input
-                              className="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                              placeholder={n.currentPort != null ? String(n.currentPort) : 'port'}
-                              type="number"
-                              value={ov.port}
-                              onChange={e => setOverride(n.nodeId, 'port', e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
+
+        {/* Horizontal resize handle */}
+        <div
+          className="w-1.5 shrink-0 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors mx-1.5 rounded"
+          onMouseDown={onHDragStart}
+        />
 
         {/* Center: message */}
         <div className="flex-1 flex flex-col gap-1 min-h-0">

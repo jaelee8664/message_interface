@@ -113,7 +113,19 @@ class WebSocketClientRegistry {
         session.send(Mono.just(msg)).awaitFirstOrNull()
     }
 
-    fun getAll(): Map<String, Boolean> = sessions.mapValues { (_, s) -> s.isOpen }
+    // Node0 핸들러 연결 추적 (모니터링 전용 — 핸들러가 연결 생명주기를 직접 관리)
+    private val handlerSessions = ConcurrentHashMap<String, WebSocketSession>()
+
+    fun registerHandlerSession(key: String, session: WebSocketSession) {
+        handlerSessions[key] = session
+    }
+
+    fun removeHandlerSession(key: String) {
+        handlerSessions.remove(key)
+    }
+
+    fun getAll(): Map<String, Boolean> =
+        sessions.mapValues { (_, s) -> s.isOpen } + handlerSessions.mapValues { (_, s) -> s.isOpen }
 
     fun isConnected(key: String) = sessions[key]?.isOpen == true
 

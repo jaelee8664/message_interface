@@ -39,10 +39,15 @@ class SimulatorService(
             parserRegistry.getParser(format).parse(rawBytes).toMutableMap()
         }.getOrNull()
 
+        // Derive protocol and endpoint from NODE0 if not explicitly provided
+        val node0 = unit.nodes.firstOrNull { it.nodeType == NodeType.NODE0 }
+        val effectiveProtocol = req.protocol ?: node0?.node0?.protocol?.name ?: "REST_SERVER"
+        val effectiveEndpoint = req.endpoint ?: node0?.node0?.path
+
         val context = MessageContext(
             rawBytes = rawBytes,
-            endpoint = req.endpoint,
-            protocol = req.protocol,
+            endpoint = effectiveEndpoint,
+            protocol = effectiveProtocol,
             metadata = req.metadata,
             parsedMessage = parsedMessage
         )
@@ -120,7 +125,8 @@ class SimulatorService(
             if (node.nodeType == NodeType.NODE4 && node.node4 != null && override != null) {
                 node.copy(node4 = node.node4.copy(
                     targetHost = override.host ?: node.node4.targetHost,
-                    targetPort = override.port ?: node.node4.targetPort
+                    targetPort = override.port ?: node.node4.targetPort,
+                    targetPath = override.targetIp ?: node.node4.targetPath
                 ))
             } else node
         }

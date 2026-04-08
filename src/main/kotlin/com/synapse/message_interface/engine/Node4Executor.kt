@@ -60,7 +60,7 @@ class Node4Executor(
                 null
             }
             ProtocolType.WEBSOCKET_SERVER -> {
-                sendViaWebSocketToExisting(serialized, definition)
+                sendViaWebSocketToExisting(serialized, definition, context)
                 null
             }
             ProtocolType.TCP_CLIENT -> {
@@ -149,15 +149,22 @@ class Node4Executor(
     }
 
     /**
-     * Send to an already-connected WebSocket session (e.g. same unit's server session).
-     * Uses the targetPath as lookup key if no unitId is available.
+     * Send to an already-connected WebSocket server session.
+     * targetPath 기준:
+     *  - null → 수신한 요청과 동일한 세션에 응답 (context.metadata["wsSessionId"] 사용)
+     *  - IP 주소 → 해당 IP 클라이언트의 최신 세션에 송신
      */
-    private suspend fun sendViaWebSocketToExisting(data: ByteArray, definition: Node4Definition) {
-        val key = definition.targetPath ?: return
+    private suspend fun sendViaWebSocketToExisting(data: ByteArray, definition: Node4Definition, context: MessageContext) {
+        val target = definition.targetPath
         try {
-            webSocketSessionRegistry.send(key, data).awaitFirstOrNull()
+            if (target.isNullOrBlank()) {
+                val sessionId = context.metadata["wsSessionId"] ?: return
+                webSocketSessionRegistry.send(sessionId, data).awaitFirstOrNull()
+            } else {
+                webSocketSessionRegistry.sendByIp(target, data).awaitFirstOrNull()
+            }
         } catch (e: Exception) {
-            log.warn("[Node4] WebSocket 세션 송신 실패 (key=$key): ${e.message}")
+            log.warn("[Node4] WebSocket 세션 송신 실패 (target=$target): ${e.message}")
         }
     }
 
@@ -186,17 +193,22 @@ class Node4Executor(
     }
 
     /**
-     * Send to an already-connected TCP server session (channelId-based).
-     * channelId 우선순위:
-     *  1. definition.targetPath에 명시된 값 (다른 특정 세션에 보낼 때)
-     *  2. context.metadata["channelId"] — 수신한 요청과 동일한 세션에 응답할 때
+     * Send to an already-connected TCP server session.
+     * targetPath 기준:
+     *  - null → 수신한 요청과 동일한 세션에 응답 (context.metadata["channelId"] 사용)
+     *  - IP 주소 → 해당 IP 클라이언트의 모든 활성 채널에 송신
      */
     private fun sendViaTcpToExisting(data: ByteArray, definition: Node4Definition, context: MessageContext) {
-        val channelId = definition.targetPath ?: context.metadata["channelId"] ?: return
+        val target = definition.targetPath
         try {
-            tcpServerSessionRegistry.send(channelId, data)
+            if (target.isNullOrBlank()) {
+                val channelId = context.metadata["channelId"] ?: return
+                tcpServerSessionRegistry.send(channelId, data)
+            } else {
+                tcpServerSessionRegistry.sendByIp(target, data)
+            }
         } catch (e: Exception) {
-            log.warn("[Node4] TCP Server 세션 송신 실패 (channelId=$channelId): ${e.message}")
+            log.warn("[Node4] TCP Server 세션 송신 실패 (target=$target): ${e.message}")
         }
     }
 

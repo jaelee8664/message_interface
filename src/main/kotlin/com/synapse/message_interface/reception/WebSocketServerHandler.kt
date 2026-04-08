@@ -41,8 +41,9 @@ class WebSocketServerHandler(
         }
 
         val node0 = unit.nodes.first { it.node0?.protocol == ProtocolType.WEBSOCKET_SERVER }.node0!!
-        sessionRegistry.register(unit.id, session)
-        log.info("[WebSocket Server] 새 연결: unitId=${unit.id}, sessionId=${session.id}")
+        val sessionId = sessionRegistry.register(session, unit.id)
+        val clientIp = session.handshakeInfo.remoteAddress?.address?.hostAddress ?: ""
+        log.info("[WebSocket Server] 새 연결: unitId=${unit.id}, sessionId=$sessionId, ip=$clientIp")
 
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val lastPongTime = AtomicLong(System.currentTimeMillis())
@@ -86,7 +87,8 @@ class WebSocketServerHandler(
                         val ctx = MessageContext(
                             rawBytes = payload,
                             endpoint = path,
-                            protocol = "WEBSOCKET_SERVER"
+                            protocol = "WEBSOCKET_SERVER",
+                            metadata = mapOf("wsSessionId" to sessionId, "clientIp" to clientIp)
                         )
                         dispatcher.dispatch(ctx)
                     } catch (e: Exception) {
@@ -97,7 +99,7 @@ class WebSocketServerHandler(
             .doFinally {
                 pingJob?.cancel()
                 scope.cancel()
-                sessionRegistry.remove(unit.id)
+                sessionRegistry.remove(sessionId)
             }
             .then()
     }

@@ -21,10 +21,11 @@ data class StepAssertion(
     val expectedValue: String = ""
 )
 
-/** Per-NODE4-node host/port override for simulation. nodeId is the key in the map. */
+/** Per-NODE4-node host/port/ip override for simulation. nodeId is the key in the map. */
 data class Node4Override(
     val host: String? = null,
-    val port: Int? = null
+    val port: Int? = null,
+    val targetIp: String? = null   // WEBSOCKET_SERVER / TCP_SERVER 대상 IP 오버라이드
 )
 
 data class SimulationStep(
@@ -34,7 +35,7 @@ data class SimulationStep(
     val message: String,
     val format: String = "JSON",              // "JSON" | "XML"
     val endpoint: String? = null,
-    val protocol: String = "REST_SERVER",
+    val protocol: String? = null,             // null → derived from unit's NODE0
     val metadata: Map<String, String> = emptyMap(),
     val node4Overrides: Map<String, Node4Override> = emptyMap(),  // nodeId → override
     val delayAfterMs: Long = 0,
@@ -49,7 +50,7 @@ data class SimulateUnitRequest(
     val message: String,
     val format: String = "JSON",
     val endpoint: String? = null,
-    val protocol: String = "REST_SERVER",
+    val protocol: String? = null,   // null → derived from unit's NODE0
     val metadata: Map<String, String> = emptyMap(),
     val node4Overrides: Map<String, Node4Override> = emptyMap()   // nodeId → override
 )

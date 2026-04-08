@@ -44,20 +44,11 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
   const needsReconnect = isWsClient || isTcpClient
   const hasRetry = (def.retryCount ?? 0) > 0
 
-  // WebSocket_SERVER: 세션 키 = 유닛 ID (고정 경로)
-  // TCP_SERVER: 세션 키 = Netty 채널 ID (런타임 동적값) → "self"는 null로 표현, 백엔드가 context.metadata["channelId"] 사용
-  const replyToSelf = def.protocol === 'WEBSOCKET_SERVER'
-    ? def.targetPath === unitId
-    : def.protocol === 'TCP_SERVER'
-      ? !def.targetPath
-      : false
+  // WEBSOCKET_SERVER / TCP_SERVER 모두 targetPath=null → 수신한 세션에 그대로 응답
+  const replyToSelf = isSessionProtocol ? def.targetPath == null : false
 
   const handleReplyToSelfToggle = (checked: boolean) => {
-    if (def.protocol === 'TCP_SERVER') {
-      update({ targetPath: checked ? null : '' })
-    } else {
-      update({ targetPath: checked ? unitId : '' })
-    }
+    update({ targetPath: checked ? null : '' })
   }
 
   return (
@@ -92,10 +83,11 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
           </p>
           {!replyToSelf && (
             <InputField
-              label="대상 세션 키"
+              label="대상 클라이언트 IP"
               value={def.targetPath ?? ''}
               onChange={(e) => update({ targetPath: e.target.value })}
-              placeholder="예: 다른 유닛 ID"
+              placeholder="예: 192.168.0.10"
+              hint="해당 IP로 접속한 모든 클라이언트 세션에 전송합니다."
             />
           )}
         </div>

@@ -167,7 +167,19 @@ class TcpClientConnectionPool {
         }
     }
 
-    fun getAll(): Map<String, Boolean> = connections.mapValues { (_, c) -> !c.isDisposed }
+    // Node0 핸들러 연결 추적 (모니터링 전용 — 핸들러가 연결 생명주기를 직접 관리)
+    private val handlerConnections = ConcurrentHashMap<String, Connection>()
+
+    fun registerHandlerConnection(key: String, connection: Connection) {
+        handlerConnections[key] = connection
+    }
+
+    fun removeHandlerConnection(key: String) {
+        handlerConnections.remove(key)
+    }
+
+    fun getAll(): Map<String, Boolean> =
+        connections.mapValues { (_, c) -> !c.isDisposed } + handlerConnections.mapValues { (_, c) -> !c.isDisposed }
 
     fun isConnected(key: String) = connections[key]?.isDisposed == false
 

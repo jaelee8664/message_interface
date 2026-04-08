@@ -18,11 +18,6 @@ class ProtocolDetectorHandler(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun channelActive(ctx: ChannelHandlerContext) {
-        // 연결 즉시 세션을 등록한다. HTTP/WebSocket으로 판별되면 decode()에서 제거된다.
-        val channelId = ctx.channel().id().asShortText()
-        val remoteAddr = ctx.channel().remoteAddress()?.toString() ?: channelId
-        log.info("[TCP Server] 클라이언트 연결: $remoteAddr (channelId=$channelId)")
-        sessionRegistry?.register(channelId, ctx)
         super.channelActive(ctx)
     }
 
@@ -31,15 +26,15 @@ class ProtocolDetectorHandler(
 
         val pipeline = ctx.pipeline()
         if (isHttp(buf)) {
-            log.debug("[ProtocolDetector] HTTP 감지 → Spring 처리")
-            // HTTP/WebSocket 연결 — 세션 등록 취소 및 idle handler 제거
-            val channelId = ctx.channel().id().asShortText()
-            sessionRegistry?.remove(channelId)
+            // HTTP/WebSocket 연결 — idle handler만 제거 (TCP 세션 미등록이므로 cleanup 불필요)
             try { pipeline.remove("tcp-idle-state") } catch (_: NoSuchElementException) {}
             pipeline.remove(this)
         } else {
             val format = detectFormat(buf)
             log.debug("[ProtocolDetector] raw TCP 감지 (format=$format) → TCP 핸들러로 전환")
+            // 프로토콜이 raw TCP로 확정된 시점에만 세션을 등록한다
+            val channelId = ctx.channel().id().asShortText()
+            sessionRegistry?.register(channelId, ctx)
 
             val tcpHandler = RawTcpInboundHandler(dispatcher, sessionRegistry)
 

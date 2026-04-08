@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import PipelineTraceView from '../components/simulator/PipelineTraceView'
 import type { SimulationNodeTrace } from '../components/simulator/PipelineTraceView'
+import PipelineMiniMap from '../components/simulator/PipelineMiniMap'
+import type { RawNode, RawEdge } from '../components/simulator/PipelineMiniMap'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,7 @@ interface AssertionResult extends StepAssertion {
 interface Node4Override {
   host: string
   port: string  // kept as string for input binding; converted on send
+  ip: string    // WEBSOCKET_SERVER / TCP_SERVER 대상 IP 오버라이드
 }
 
 interface SimulationStep {
@@ -41,7 +44,7 @@ interface SimulationStep {
   message: string
   format: string
   endpoint: string
-  protocol: string
+  protocol: string | null
   metadata: Record<string, string>
   node4Overrides: Record<string, Node4Override>  // nodeId → override
   delayAfterMs: number
@@ -52,8 +55,15 @@ interface SimulationStep {
 interface Node4NodeInfo {
   nodeId: string
   label: string
+  protocol: string
   currentHost?: string
   currentPort?: number
+}
+
+interface Node0Info {
+  protocol: string
+  endpoint: string | null
+  format: string
 }
 
 interface SimulationScenario {
@@ -77,15 +87,6 @@ interface EnhancedStepResult {
 
 type StepRunStatus = 'idle' | 'pending' | 'running' | 'done'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const PROTOCOLS = [
-  'REST_SERVER', 'REST_CLIENT',
-  'WEBSOCKET_SERVER', 'WEBSOCKET_CLIENT',
-  'TCP_SERVER', 'TCP_CLIENT',
-  'KAFKA_CONSUMER', 'KAFKA_PUBLISHER',
-]
-
 function emptyStep(order: number): SimulationStep {
   return {
     order,
@@ -94,7 +95,7 @@ function emptyStep(order: number): SimulationStep {
     message: '{}',
     format: 'JSON',
     endpoint: '',
-    protocol: 'REST_SERVER',
+    protocol: null,
     metadata: {},
     node4Overrides: {},
     delayAfterMs: 0,
@@ -147,10 +148,14 @@ async function executeStep(step: SimulationStep, message: string): Promise<UnitS
   try {
     const node4Overrides = Object.fromEntries(
       Object.entries(step.node4Overrides)
-        .filter(([_, v]) => v.host.trim() || v.port.trim())
+        .filter(([_, v]) => v.host.trim() || v.port.trim() || v.ip.trim())
         .map(([nodeId, v]) => [
           nodeId,
-          { host: v.host.trim() || undefined, port: v.port.trim() ? parseInt(v.port) : undefined },
+          {
+            host: v.host.trim() || undefined,
+            port: v.port.trim() ? parseInt(v.port) : undefined,
+            targetIp: v.ip.trim() || undefined,
+          },
         ])
     )
     const res = await fetch('/synapse/simulator/execute', {
@@ -261,34 +266,68 @@ function StepEditor({
 }) {
   const [open, setOpen] = useState(true)
   const [node4Nodes, setNode4Nodes] = useState<Node4NodeInfo[]>([])
+  const [node0Info, setNode0Info] = useState<Node0Info | null>(null)
+  const [unitNodes, setUnitNodes] = useState<RawNode[]>([])
+  const [unitEdges, setUnitEdges] = useState<RawEdge[]>([])
 
-  // Fetch NODE4 nodes whenever the selected unit changes
+  // Fetch unit info whenever the selected unit changes
   useEffect(() => {
-    if (!step.unitId) { setNode4Nodes([]); return }
+    if (!step.unitId) {
+      setNode4Nodes([]); setNode0Info(null)
+      setUnitNodes([]); setUnitEdges([])
+      return
+    }
     fetch(`/synapse/workflow/units/${step.unitId}`)
       .then(r => r.json())
       .then(json => {
-        const nodes: Node4NodeInfo[] = (json.data?.nodes ?? [])
-          .filter((n: any) => n.nodeType === 'NODE4' && n.node4)
-          .map((n: any) => ({
+        const nodes: RawNode[] = json.data?.nodes ?? []
+        const edges: RawEdge[] = json.data?.edges ?? []
+        setUnitNodes(nodes)
+        setUnitEdges(edges)
+
+        // NODE0: protocol + endpoint
+        const node0 = nodes.find(n => n.nodeType === 'NODE0')
+        // NODE1: format
+        const node1 = nodes.find(n => n.nodeType === 'NODE1')
+        const info: Node0Info = {
+          protocol: node0?.node0?.protocol ?? 'REST_SERVER',
+          endpoint: node0?.node0?.path ?? null,
+          format: (node1 as any)?.node1?.messageFormat ?? 'JSON',
+        }
+        setNode0Info(info)
+        onChange({
+          ...step,
+          protocol: info.protocol,
+          endpoint: info.endpoint ?? '',
+          format: info.format,
+        })
+
+        // NODE4 list (for legacy state — still used by other parts)
+        const n4: Node4NodeInfo[] = nodes
+          .filter(n => n.nodeType === 'NODE4' && n.node4)
+          .map(n => ({
             nodeId: n.id,
-            label: `${n.node4.protocol} → ${n.node4.targetHost ?? '?'}:${n.node4.targetPort ?? '?'}`,
-            currentHost: n.node4.targetHost,
-            currentPort: n.node4.targetPort,
+            label: `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`,
+            protocol: n.node4!.protocol,
+            currentHost: n.node4!.targetHost,
+            currentPort: n.node4!.targetPort,
           }))
-        setNode4Nodes(nodes)
+        setNode4Nodes(n4)
       })
-      .catch(() => setNode4Nodes([]))
+      .catch(() => {
+        setNode4Nodes([]); setNode0Info(null)
+        setUnitNodes([]); setUnitEdges([])
+      })
   }, [step.unitId])
 
   function field<K extends keyof SimulationStep>(key: K, value: SimulationStep[K]) {
     onChange({ ...step, [key]: value })
   }
 
-  function setOverride(nodeId: string, f: 'host' | 'port', value: string) {
+  function setOverride(nodeId: string, f: 'host' | 'port' | 'ip', value: string) {
     field('node4Overrides', {
       ...step.node4Overrides,
-      [nodeId]: { ...(step.node4Overrides[nodeId] ?? { host: '', port: '' }), [f]: value },
+      [nodeId]: { ...(step.node4Overrides[nodeId] ?? { host: '', port: '', ip: '' }), [f]: value },
     })
   }
 
@@ -334,38 +373,31 @@ function StepEditor({
                 {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">포맷</label>
-              <select
-                className="w-24 bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-xs text-white"
-                value={step.format}
-                onChange={e => field('format', e.target.value)}
-              >
-                <option>JSON</option>
-                <option>XML</option>
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-slate-400 mb-1">프로토콜</label>
-              <select
-                className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-xs text-white"
-                value={step.protocol}
-                onChange={e => field('protocol', e.target.value)}
-              >
-                {PROTOCOLS.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
           </div>
 
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">엔드포인트</label>
-            <input
-              className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-xs text-white"
-              placeholder="/api/example"
-              value={step.endpoint}
-              onChange={e => field('endpoint', e.target.value)}
-            />
-          </div>
+          {/* Unit info (read-only, derived from NODE0/NODE1) */}
+          {step.unitId && (
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">파이프라인 정보</label>
+              {node0Info ? (
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="text-xs px-2 py-0.5 rounded bg-slate-700 border border-slate-600 text-cyan-300 font-mono">
+                    {node0Info.protocol}
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-slate-700 border border-slate-600 text-purple-300">
+                    {node0Info.format}
+                  </span>
+                  {node0Info.endpoint && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-slate-700 border border-slate-600 text-slate-300 font-mono">
+                      {node0Info.endpoint}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500 italic">불러오는 중...</div>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-2 items-end">
             <div className="w-28">
@@ -380,37 +412,21 @@ function StepEditor({
             </div>
           </div>
 
-          {/* Per-NODE4 overrides — shown only when unit has NODE4 nodes */}
-          {node4Nodes.length > 0 && (
+          {/* Pipeline tree with inline NODE4 overrides */}
+          {unitNodes.length > 0 && (
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">NODE4 오버라이드</label>
-              <div className="space-y-2">
-                {node4Nodes.map(n => {
-                  const ov = step.node4Overrides[n.nodeId] ?? { host: '', port: '' }
-                  return (
-                    <div key={n.nodeId}>
-                      <div className="text-xs text-slate-500 mb-0.5 truncate" title={n.label}>
-                        {n.label}
-                      </div>
-                      <div className="flex gap-1.5">
-                        <input
-                          className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                          placeholder={n.currentHost ?? 'host'}
-                          value={ov.host}
-                          onChange={e => setOverride(n.nodeId, 'host', e.target.value)}
-                        />
-                        <input
-                          className="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
-                          placeholder={n.currentPort != null ? String(n.currentPort) : 'port'}
-                          type="number"
-                          value={ov.port}
-                          onChange={e => setOverride(n.nodeId, 'port', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              <label className="block text-xs text-slate-400 mb-1.5">
+                파이프라인
+                {node4Nodes.length > 0 && (
+                  <span className="ml-1.5 text-slate-500">(NODE4 행에서 주소 오버라이드)</span>
+                )}
+              </label>
+              <PipelineMiniMap
+                nodes={unitNodes}
+                edges={unitEdges}
+                overrides={step.node4Overrides}
+                onOverrideChange={(nodeId, f, value) => setOverride(nodeId, f, value)}
+              />
             </div>
           )}
 

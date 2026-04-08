@@ -22,7 +22,8 @@ class TcpClientHandler(
     private val unit: WorkflowUnit,
     private val definition: Node0Definition,
     private val dispatcher: WorkflowDispatcher,
-    private val connectionRegistry: TcpConnectionRegistry
+    private val connectionRegistry: TcpConnectionRegistry,
+    private val connectionPool: TcpClientConnectionPool
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -40,6 +41,7 @@ class TcpClientHandler(
     }
 
     private suspend fun connectWithRetry() {
+        val connKey = "${definition.host ?: "localhost"}:${definition.port ?: 9091}"
         while (running) {
             try {
                 val connection: Connection = TcpClient.create()
@@ -51,6 +53,7 @@ class TcpClientHandler(
 
                 activeConnection = connection
                 connectionRegistry.register(unit.id, connection)
+                connectionPool.registerHandlerConnection(connKey, connection)
                 log.info("[TCP Client] 연결 성공: host=${definition.host}, port=${definition.port}")
 
                 connection.inbound().receive()
@@ -67,6 +70,7 @@ class TcpClientHandler(
                     .doFinally {
                         activeConnection = null
                         connectionRegistry.removeIfSame(unit.id, connection)
+                        connectionPool.removeHandlerConnection(connKey)
                     }
                     .then()
                     .awaitFirstOrNull()

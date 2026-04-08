@@ -12,7 +12,6 @@ import com.synapse.message_interface.log.MessageTraceLogger
 import com.synapse.message_interface.log.TraceLog
 import com.synapse.message_interface.log.TraceStatus
 import com.synapse.message_interface.parser.MessageParserRegistry
-import com.synapse.message_interface.reception.TcpServerSessionRegistry
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.springframework.stereotype.Component
@@ -49,8 +48,7 @@ class MessagePipeline(
     private val node5Executor: Node5Executor,
     private val traceLogger: MessageTraceLogger,
     private val deadLetterStore: DeadLetterStore,
-    private val parserRegistry: MessageParserRegistry,
-    private val tcpServerSessionRegistry: TcpServerSessionRegistry
+    private val parserRegistry: MessageParserRegistry
 ) {
 
     /**
@@ -368,10 +366,7 @@ class MessagePipeline(
         ProtocolType.WEBSOCKET_CLIENT -> "ws://${def.targetHost ?: "localhost"}:${def.targetPort ?: 80}${def.targetPath ?: "/"}"
         ProtocolType.KAFKA_PUBLISHER  -> "topic: ${def.targetTopic ?: "-"}"
         ProtocolType.WEBSOCKET_SERVER -> def.targetPath
-        ProtocolType.TCP_SERVER       -> {
-            val channelId = def.targetPath ?: context.metadata["channelId"]
-            channelId?.let { tcpServerSessionRegistry.getRemoteAddress(it) } ?: "TCP_SERVER"
-        }
+        ProtocolType.TCP_SERVER       -> def.targetPath ?: context.metadata["channelId"] ?: "TCP_SERVER"
         else -> null
     }
 

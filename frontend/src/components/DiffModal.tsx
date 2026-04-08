@@ -33,7 +33,7 @@ const UNIT_STATUS_LABEL: Record<NodeStatus, string> = {
 
 interface Selected {
   unitId: string
-  nodeType: string
+  nodeIndex: number  // index in unit.nodeDiffs (unique even with duplicate nodeTypes)
 }
 
 export default function DiffModal() {
@@ -61,9 +61,9 @@ export default function DiffModal() {
     })
   }
 
-  const handleNodeClick = (unitId: string, nodeType: string) => {
+  const handleNodeClick = (unitId: string, nodeIndex: number) => {
     setSelected(prev =>
-      prev?.unitId === unitId && prev?.nodeType === nodeType ? null : { unitId, nodeType }
+      prev?.unitId === unitId && prev?.nodeIndex === nodeIndex ? null : { unitId, nodeIndex }
     )
   }
 
@@ -71,7 +71,7 @@ export default function DiffModal() {
     ? diffResult?.unitDiffs.find(u => u.id === selected.unitId)
     : null
   const selectedNodeDiff = selected && selectedUnitDiff
-    ? selectedUnitDiff.nodeDiffs.find(n => n.nodeType === selected.nodeType)
+    ? selectedUnitDiff.nodeDiffs[selected.nodeIndex] ?? null
     : null
 
   // Units auto-expanded when changed
@@ -251,7 +251,7 @@ interface UnitSectionProps {
   expanded: boolean
   selected: Selected | null
   onToggle: () => void
-  onNodeClick: (unitId: string, nodeType: string) => void
+  onNodeClick: (unitId: string, nodeIndex: number) => void
 }
 
 function UnitSection({ unit, side, expanded, selected, onToggle, onNodeClick }: UnitSectionProps) {
@@ -278,11 +278,13 @@ function UnitSection({ unit, side, expanded, selected, onToggle, onNodeClick }: 
     )
   }
 
-  // Nodes visible on this side
-  const visibleNodes = unit.nodeDiffs.filter(n => {
-    if (side === 'before') return (n.status as NodeStatus) !== 'ADDED'
-    return (n.status as NodeStatus) !== 'REMOVED'
-  })
+  // Nodes visible on this side, keep original index for unique selection key
+  const visibleNodes = unit.nodeDiffs
+    .map((n, idx) => ({ node: n, idx }))
+    .filter(({ node }) => side === 'before'
+      ? (node.status as NodeStatus) !== 'ADDED'
+      : (node.status as NodeStatus) !== 'REMOVED'
+    )
 
   return (
     <div className="border-b border-slate-800">
@@ -312,13 +314,13 @@ function UnitSection({ unit, side, expanded, selected, onToggle, onNodeClick }: 
           {visibleNodes.length === 0 && (
             <div className="px-8 py-1.5 text-xs text-slate-600">노드 없음</div>
           )}
-          {visibleNodes.map(node => {
+          {visibleNodes.map(({ node, idx }) => {
             const ns = node.status as NodeStatus
-            const isSelected = selected?.unitId === unit.id && selected?.nodeType === node.nodeType
+            const isSelected = selected?.unitId === unit.id && selected?.nodeIndex === idx
             return (
               <button
-                key={node.nodeType}
-                onClick={() => onNodeClick(unit.id, node.nodeType)}
+                key={idx}
+                onClick={() => onNodeClick(unit.id, idx)}
                 className={`w-full flex items-center gap-2 px-8 py-1.5 text-xs text-left transition-colors ${
                   isSelected ? 'bg-indigo-900/40 border-l-2 border-indigo-500' : 'hover:bg-slate-800/40'
                 }`}

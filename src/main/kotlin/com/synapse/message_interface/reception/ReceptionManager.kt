@@ -4,11 +4,6 @@ import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.engine.WorkflowDispatcher
 import com.synapse.message_interface.workflow.WorkflowRegistry
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationRunner
 import org.springframework.context.annotation.Bean
@@ -26,12 +21,13 @@ class ReceptionManager(
     private val registry: WorkflowRegistry,
     private val dispatcher: WorkflowDispatcher,
     private val sessionRegistry: WebSocketSessionRegistry,
+    private val webSocketClientRegistry: WebSocketClientRegistry,
     private val connectionRegistry: TcpConnectionRegistry,
+    private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val activeHandlers = ConcurrentHashMap<String, Any>() // unitId → handler
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Bean
     fun webSocketHandlerAdapter() = WebSocketHandlerAdapter()
@@ -62,13 +58,13 @@ class ReceptionManager(
         val node0 = unit.nodes.find { it.nodeType.name == "NODE0" }?.node0 ?: return
         when (node0.protocol) {
             ProtocolType.WEBSOCKET_CLIENT -> {
-                val handler = WebSocketClientHandler(unit, node0, dispatcher, sessionRegistry)
+                val handler = WebSocketClientHandler(unit, node0, dispatcher, webSocketClientRegistry)
                 handler.start()
                 activeHandlers[unit.id] = handler
                 log.info("[ReceptionManager] WebSocket Client 시작: unitId=${unit.id}")
             }
             ProtocolType.TCP_CLIENT -> {
-                val handler = TcpClientHandler(unit, node0, dispatcher, connectionRegistry)
+                val handler = TcpClientHandler(unit, node0, dispatcher, connectionRegistry, tcpClientConnectionPool)
                 handler.start()
                 activeHandlers[unit.id] = handler
                 log.info("[ReceptionManager] TCP Client 시작: unitId=${unit.id}")
@@ -99,8 +95,7 @@ class ReceptionManager(
             is KafkaConsumerHandler -> handler.stop()
         }
         // 서버 프로토콜 세션 정리 (unit 삭제 시)
-        sessionRegistry.getSession(unitId)?.let { if (it.isOpen) scope.launch { it.close().awaitFirstOrNull() } }
-        tcpServerSessionRegistry.closeAll()
+        sessionRegistry.closeAllForUnit(unitId)
     }
 
     fun restartUnit(unit: WorkflowUnit) {

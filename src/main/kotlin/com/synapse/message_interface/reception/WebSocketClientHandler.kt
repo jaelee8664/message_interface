@@ -22,7 +22,7 @@ class WebSocketClientHandler(
     private val unit: WorkflowUnit,
     private val definition: Node0Definition,
     private val dispatcher: WorkflowDispatcher,
-    private val sessionRegistry: WebSocketSessionRegistry
+    private val clientRegistry: WebSocketClientRegistry
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val client = ReactorNettyWebSocketClient()
@@ -44,8 +44,9 @@ class WebSocketClientHandler(
                 val uri = URI("ws://${definition.host}:${definition.port}${definition.path ?: "/"}")
                 log.info("[WebSocket Client] 연결 시도: $uri")
 
+                val connKey = "${definition.host}:${definition.port}${definition.path ?: "/"}"
                 client.execute(uri) { session ->
-                    sessionRegistry.register(unit.id, session)
+                    clientRegistry.registerHandlerSession(connKey, session)
                     log.info("[WebSocket Client] 연결 성공: unitId=${unit.id}")
 
                     val lastPongTime = AtomicLong(System.currentTimeMillis())
@@ -98,7 +99,7 @@ class WebSocketClientHandler(
                         }
                         .doFinally {
                             pingJob?.cancel()
-                            sessionRegistry.remove(unit.id)
+                            clientRegistry.removeHandlerSession(connKey)
                         }
                         .then()
                 }.awaitFirstOrNull()

@@ -24,12 +24,13 @@ class MonitoringController(
     fun getStatus(
         @RequestParam(defaultValue = "60") windowMinutes: Int
     ): ResponseEntity<ApiResponse<MonitorStatus>> {
-        val tcpServerSessions = tcpServerSessionRegistry.getAll().map { (channelId, _) ->
-            TcpServerSession(channelId, tcpServerSessionRegistry.getRemoteAddress(channelId))
+        val tcpSessionActive = tcpServerSessionRegistry.getAll().mapValues { (_, ctx) -> ctx.channel().isActive }
+        val tcpServerSessions = tcpServerSessionRegistry.getIpMap().map { (ip, channelIds) ->
+            ServerSession(ip, channelIds.size, channelIds.all { tcpSessionActive[it] == true })
         }
-        val wsServerSessions = webSocketSessionRegistry.getAll().map { (unitId, isOpen) ->
-            val remoteIp = webSocketSessionRegistry.getRemoteAddress(unitId) ?: unitId
-            WsSession(unitId, remoteIp, isOpen)
+        val wsSessionOpen = webSocketSessionRegistry.getAll()
+        val wsServerSessions = webSocketSessionRegistry.getIpMap().map { (ip, sessionIds) ->
+            ServerSession(ip, sessionIds.size, sessionIds.all { wsSessionOpen[it] == true })
         }
         val wsClientConnections = webSocketClientRegistry.getAll().map { (key, connected) ->
             ClientConnection(key, connected)
@@ -77,14 +78,14 @@ data class MonitorStatus(
 )
 
 data class ConnectionStatus(
-    val tcpServer: List<TcpServerSession>,
-    val webSocketServer: List<WsSession>,
+    val tcpServer: List<ServerSession>,
+    val webSocketServer: List<ServerSession>,
     val webSocketClient: List<ClientConnection>,
     val tcpClient: List<ClientConnection>
 )
 
-data class TcpServerSession(val channelId: String, val remoteAddress: String?)
-data class WsSession(val unitId: String, val unitName: String, val isOpen: Boolean)
+/** TCP/WebSocket 서버에 접속한 클라이언트 1개 IP 기준 집계 */
+data class ServerSession(val clientIp: String, val sessionCount: Int, val allActive: Boolean)
 data class ClientConnection(val key: String, val connected: Boolean)
 data class UnitStatDto(
     val unitId: String,
