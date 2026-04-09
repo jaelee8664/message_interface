@@ -4,6 +4,7 @@ export type ProtocolType =
   | 'TCP_SERVER' | 'TCP_CLIENT'
   | 'KAFKA_CONSUMER' | 'KAFKA_PUBLISHER'
   | 'REST_SERVER' | 'REST_CLIENT'
+  | 'MONGO_QUEUE_CONSUMER' | 'MONGO_QUEUE_PUBLISHER'
 export type FieldType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOLEAN' | 'LIST' | 'MAP' | 'CUSTOM'
 export type NodeType = 'NODE0' | 'NODE1' | 'NODE2' | 'NODE3' | 'NODE4' | 'NODE5'
 export type ConditionType = 'ENDPOINT' | 'FIELD_VALUE' | 'CONTAINS_KEY'
@@ -35,6 +36,9 @@ export interface Node0Definition {
   reconnectDelaySeconds: number
   bidirectional: boolean
   tcpIdleTimeoutSeconds?: number
+  // MONGO_QUEUE_CONSUMER 전용
+  mongoQueueName?: string
+  mongoQueueMaxRetries?: number
 }
 
 export interface Node1Definition {
@@ -93,6 +97,8 @@ export interface Node4Definition {
   timeoutMs?: number
   reconnectEnabled?: boolean
   reconnectDelaySeconds?: number
+  // MONGO_QUEUE_PUBLISHER 전용
+  mongoQueueName?: string
 }
 
 // ── NODE5 – Response node ─────────────────────────────────────────────────────

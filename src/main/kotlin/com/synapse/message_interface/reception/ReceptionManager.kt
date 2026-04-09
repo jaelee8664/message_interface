@@ -81,8 +81,13 @@ class ReceptionManager(
                 // 서버 프로토콜은 Spring/Netty가 처리 — 세션 정리는 restartUnit()에서 수행
                 log.info("[ReceptionManager] 서버 프로토콜 등록 완료: ${node0.protocol}, unitId=${unit.id}")
             }
+            ProtocolType.MONGO_QUEUE_CONSUMER -> {
+                // GET 요청 기반 — MongoQueueRestHandler(RouterFunction)가 처리
+                log.info("[ReceptionManager] MongoDB 큐 소비 등록 완료: path=${node0.path}, queue=${node0.mongoQueueName}, unitId=${unit.id}")
+            }
             ProtocolType.KAFKA_PUBLISHER,
-            ProtocolType.REST_CLIENT -> {
+            ProtocolType.REST_CLIENT,
+            ProtocolType.MONGO_QUEUE_PUBLISHER -> {
                 log.info("[ReceptionManager] ${node0.protocol}는 Node4 송신 전용입니다. Node0에서 사용 불가: unitId=${unit.id}")
             }
         }

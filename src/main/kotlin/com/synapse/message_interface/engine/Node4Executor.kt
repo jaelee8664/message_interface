@@ -5,6 +5,7 @@ import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.parser.MessageParserRegistry
+import com.synapse.message_interface.queue.MongoQueueService
 import com.synapse.message_interface.reception.TcpClientConnectionPool
 import com.synapse.message_interface.reception.TcpConnectionRegistry
 import com.synapse.message_interface.reception.TcpServerSessionRegistry
@@ -18,6 +19,7 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import reactor.core.publisher.Mono
@@ -34,7 +36,9 @@ class Node4Executor(
     private val tcpConnectionRegistry: TcpConnectionRegistry,
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
-    private val kafkaProducerPool: KafkaProducerPool
+    private val kafkaProducerPool: KafkaProducerPool,
+    @Autowired(required = false)
+    private val mongoQueueService: MongoQueueService? = null
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -45,13 +49,15 @@ class Node4Executor(
      */
     suspend fun execute(data: Map<String, Any?>, definition: Node4Definition, context: MessageContext): ByteArray? {
         val serialized = parserRegistry.getParser(definition.messageFormat).serialize(data)
+        // MONGO_QUEUE_PUBLISHER는 traceId를 dedup 키로 사용하여 재시도 중복 발행 방지
+        val mongoMessageId = context.traceId
 
         return withRetry(definition.retryCount, definition.retryDelaySeconds, definition.timeoutMs) {
-            sendByProtocol(serialized, definition, context)
+            sendByProtocol(serialized, definition, context, mongoMessageId)
         }
     }
 
-    private suspend fun sendByProtocol(serialized: ByteArray, definition: Node4Definition, context: MessageContext): ByteArray? =
+    private suspend fun sendByProtocol(serialized: ByteArray, definition: Node4Definition, context: MessageContext, mongoMessageId: String): ByteArray? =
         when (definition.protocol) {
             ProtocolType.REST_CLIENT -> sendViaRest(serialized, definition)
 
@@ -80,6 +86,13 @@ class Node4Executor(
             ProtocolType.KAFKA_PUBLISHER -> {
                 sendViaKafkaPublisher(serialized, definition)
                 null
+            }
+            ProtocolType.MONGO_QUEUE_PUBLISHER -> {
+                sendViaMongoQueue(serialized, definition, mongoMessageId)
+                null
+            }
+            ProtocolType.MONGO_QUEUE_CONSUMER -> {
+                throw Node4SendException("MongoDB Queue Consumer는 Node4 송신 프로토콜로 사용할 수 없습니다.")
             }
         }
 
@@ -228,6 +241,21 @@ class Node4Executor(
             log.debug("[Node4] Kafka 발행 완료: topic=$topic")
         } catch (e: Exception) {
             throw Node4SendException("Kafka 발행 실패 (topic=$topic): ${e.message}", e)
+        }
+    }
+
+    // ── MongoDB Queue ─────────────────────────────────────────────────────────
+
+    private suspend fun sendViaMongoQueue(data: ByteArray, definition: Node4Definition, messageId: String) {
+        val service = mongoQueueService
+            ?: throw Node4SendException("MongoDB가 활성화되어 있지 않습니다. --spring.profiles.active=mongo 옵션을 확인하세요.")
+        val queueName = definition.mongoQueueName
+            ?: throw Node4SendException("mongoQueueName이 설정되지 않았습니다.")
+        try {
+            service.publish(queueName, data, messageId)
+            log.debug("[Node4] MongoDB 큐 발행 완료: queueName=$queueName, messageId=$messageId")
+        } catch (e: Exception) {
+            throw Node4SendException("MongoDB 큐 발행 실패 (queueName=$queueName): ${e.message}", e)
         }
     }
 

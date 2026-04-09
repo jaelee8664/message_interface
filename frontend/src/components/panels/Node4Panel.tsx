@@ -19,6 +19,7 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'TCP_CLIENT', label: 'TCP 클라이언트' },
   { value: 'TCP_SERVER', label: 'TCP 서버 (연결에 송신)' },
   { value: 'KAFKA_PUBLISHER', label: 'Kafka 발행' },
+  { value: 'MONGO_QUEUE_PUBLISHER', label: 'MongoDB 큐 발행' },
 ]
 
 const DEFAULT_DEF: Node4Definition = {
@@ -38,6 +39,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
 
   const needsTarget = ['REST_CLIENT', 'WEBSOCKET_CLIENT', 'TCP_CLIENT'].includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_PUBLISHER'
+  const isMongoQueue = def.protocol === 'MONGO_QUEUE_PUBLISHER'
   const isWsClient = def.protocol === 'WEBSOCKET_CLIENT'
   const isTcpClient = def.protocol === 'TCP_CLIENT'
   const isSessionProtocol = def.protocol === 'WEBSOCKET_SERVER' || def.protocol === 'TCP_SERVER'
@@ -135,6 +137,16 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
             placeholder="예: my-topic"
           />
         </>
+      )}
+
+      {isMongoQueue && (
+        <InputField
+          label="큐 이름"
+          value={def.mongoQueueName ?? ''}
+          onChange={(e) => update({ mongoQueueName: e.target.value })}
+          placeholder="예: order-queue"
+          hint="NODE0 소비 측과 동일한 이름을 입력하세요. 재시도 중 중복 발행은 자동으로 방지됩니다."
+        />
       )}
 
       <InputField

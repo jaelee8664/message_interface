@@ -17,6 +17,7 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'TCP_CLIENT', label: 'TCP 클라이언트' },
   { value: 'KAFKA_CONSUMER', label: 'Kafka Consumer' },
   { value: 'REST_SERVER', label: 'REST 서버' },
+  { value: 'MONGO_QUEUE_CONSUMER', label: 'MongoDB 큐 소비 (폴링 응답)' },
 ]
 
 const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
@@ -39,6 +40,7 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
   const isKafka = def.protocol === 'KAFKA_CONSUMER'
   const isRestServer = def.protocol === 'REST_SERVER'
   const isTcpServer = def.protocol === 'TCP_SERVER'
+  const isMongoQueueConsumer = def.protocol === 'MONGO_QUEUE_CONSUMER'
   const restPathReserved = isRestServer && (def.path?.startsWith('/synapse/') ?? false)
 
   const update = (partial: Partial<Node0Definition>) => onChange({ ...def, ...partial })
@@ -103,6 +105,38 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
               <span className="font-semibold">/synapse/</span> 로 시작하는 경로는 내부 예약 경로입니다. 다른 경로를 사용하세요.
             </div>
           )}
+        </>
+      )}
+
+      {isMongoQueueConsumer && (
+        <>
+          <InputField
+            label="폴링 수신 경로"
+            value={def.path ?? ''}
+            onChange={(e) => update({ path: e.target.value })}
+            placeholder="예: /queue/orders"
+            hint="외부 클라이언트가 GET 요청으로 이 경로를 호출하면 큐에서 메세지를 1건 꺼내 반환합니다."
+          />
+          <InputField
+            label="큐 이름"
+            value={def.mongoQueueName ?? ''}
+            onChange={(e) => update({ mongoQueueName: e.target.value })}
+            placeholder="예: order-queue"
+            hint="NODE4 발행 측과 동일한 이름을 입력하세요."
+          />
+          <InputField
+            label="최대 재시도 횟수"
+            type="number"
+            value={def.mongoQueueMaxRetries ?? 3}
+            onChange={(e) => update({ mongoQueueMaxRetries: Math.max(0, Number(e.target.value)) })}
+            hint="파이프라인 처리 실패 시 PENDING 복구 최대 횟수. 초과 시 FAILED 처리됩니다."
+          />
+          <div className="p-3 rounded border border-sky-500/30 bg-sky-500/10 text-xs text-sky-300 space-y-1">
+            <div className="font-semibold">ℹ️ 전달 보장</div>
+            <div className="text-sky-400/80 leading-relaxed">
+              메세지는 PROCESSING 상태로 락을 취득한 뒤 처리됩니다. 연결이 끊기면 60초 후 PENDING으로 자동 복구되어 재소비됩니다. 응답 헤더 <code className="bg-sky-900/50 px-1 rounded">X-Queue-Message-Id</code>로 중복 수신 여부를 클라이언트에서 확인할 수 있습니다.
+            </div>
+          </div>
         </>
       )}
 
