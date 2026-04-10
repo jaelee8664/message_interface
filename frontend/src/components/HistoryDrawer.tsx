@@ -138,17 +138,17 @@ function HistoryEntryCard({
             <span className="text-xs text-slate-500 shrink-0">{formatDate(entry.modifiedAt)}</span>
           </div>
           <div className="flex flex-wrap gap-1 mt-1">
-            {entry.tree.units.slice(0, 5).map((u) => (
+            {entry.units.slice(0, 5).map((u) => (
               <span key={u.id} className="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-300 truncate max-w-[140px]">
                 {u.name}
               </span>
             ))}
-            {entry.tree.units.length > 5 && (
+            {entry.units.length > 5 && (
               <span className="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400">
-                +{entry.tree.units.length - 5}개
+                +{entry.units.length - 5}개
               </span>
             )}
-            {entry.tree.units.length === 0 && (
+            {entry.units.length === 0 && (
               <span className="text-xs text-slate-500">(빈 워크플로우)</span>
             )}
           </div>

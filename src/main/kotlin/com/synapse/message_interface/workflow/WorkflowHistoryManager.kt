@@ -1,22 +1,39 @@
 package com.synapse.message_interface.workflow
 
-import tools.jackson.databind.ObjectMapper
 import com.synapse.message_interface.config.ReferenceConfigService
-import com.synapse.message_interface.domain.WorkflowTree
+import com.synapse.message_interface.domain.WorkflowUnit
+import jakarta.annotation.PostConstruct
+import kotlinx.coroutines.reactive.awaitFirstOrNull
+import org.springframework.data.annotation.Id
+import org.springframework.data.domain.Sort
+import org.springframework.data.mongodb.core.ReactiveMongoTemplate
+import org.springframework.data.mongodb.core.index.Index
+import org.springframework.data.mongodb.core.mapping.Document
+import org.springframework.data.mongodb.core.query.Criteria
+import org.springframework.data.mongodb.core.query.Query
 import org.springframework.stereotype.Component
-import java.io.File
 import java.time.Instant
 
-data class WorkflowHistoryEntry(
+@Document(collection = "workflow_history")
+data class WorkflowHistoryMongoDocument(
+    @Id val id: String = org.bson.types.ObjectId.get().toHexString(),
     val version: Int,
     val modifiedBy: String,
-    val modifiedAt: String,
-    val tree: WorkflowTree
+    val modifiedAt: Instant,
+    val units: List<WorkflowUnitEmbedded>
+)
+
+data class WorkflowHistoryEntry(
+    val id: String,
+    val version: Int,
+    val modifiedBy: String,
+    val modifiedAt: Instant,
+    val units: List<WorkflowUnit>
 )
 
 @Component
 class WorkflowHistoryManager(
-    private val objectMapper: ObjectMapper,
+    private val template: ReactiveMongoTemplate,
     private val referenceConfigService: ReferenceConfigService
 ) {
     @Suppress("UNCHECKED_CAST")
@@ -26,51 +43,68 @@ class WorkflowHistoryManager(
             return (history?.get("maxVersions") as? Int) ?: 10
         }
 
-    @Suppress("UNCHECKED_CAST")
-    private val historyDir: File
-        get() {
-            val history = referenceConfigService.getConfig()["history"] as? Map<*, *>
-            val dir = history?.get("directory") as? String ?: "workflow-history"
-            return File(dir).also { it.mkdirs() }
-        }
+    @PostConstruct
+    fun init() {
+        ensureIndexes()
+    }
 
-    fun save(tree: WorkflowTree, modifiedBy: String) {
-        val dir = historyDir
+    private fun ensureIndexes() {
+        val indexOps = template.indexOps("workflow_history")
+        indexOps.ensureIndex(
+            Index().on("version", Sort.Direction.ASC).named("idx_version")
+        ).subscribe()
+        indexOps.ensureIndex(
+            Index().on("modifiedAt", Sort.Direction.DESC).named("idx_modifiedAt")
+        ).subscribe()
+    }
+
+    suspend fun save(units: List<WorkflowUnit>, modifiedBy: String) {
+        // 다음 버전 번호 계산
+        val latestQuery = Query().with(Sort.by(Sort.Direction.DESC, "version")).limit(1)
+        val latest = template.findOne(latestQuery, WorkflowHistoryMongoDocument::class.java).awaitFirstOrNull()
+        val nextVersion = (latest?.version ?: 0) + 1
+
+        template.insert(
+            WorkflowHistoryMongoDocument(
+                version = nextVersion,
+                modifiedBy = modifiedBy,
+                modifiedAt = Instant.now(),
+                units = units.map(WorkflowUnitEmbedded::fromDomain)
+            )
+        ).awaitFirstOrNull()
+
+        // maxHistory 초과분 삭제 (오래된 것부터)
         val max = maxHistory
-        val files = dir.listFiles()
-            ?.filter { it.name.startsWith("history_") && it.name.endsWith(".json") }
-            ?.sortedBy { it.name }
-            ?: emptyList()
-
-        // Determine next version from the latest existing file before any deletion
-        val nextVersion = files.lastOrNull()
-            ?.let { runCatching { objectMapper.readValue(it, WorkflowHistoryEntry::class.java).version }.getOrNull() }
-            ?.plus(1) ?: 1
-
-        if (files.size >= max) {
-            files.take(files.size - max + 1).forEach { it.delete() }
+        val total = template.count(Query(), WorkflowHistoryMongoDocument::class.java).awaitFirstOrNull() ?: 0L
+        if (total > max) {
+            val trimCount = (total - max).toInt()
+            val oldestQuery = Query().with(Sort.by(Sort.Direction.ASC, "version")).limit(trimCount)
+            val toDelete = template.find(oldestQuery, WorkflowHistoryMongoDocument::class.java)
+                .collectList().awaitFirstOrNull() ?: emptyList()
+            toDelete.forEach { template.remove(it).awaitFirstOrNull() }
         }
-
-        val timestamp = Instant.now().toString().replace(":", "-")
-        val entry = WorkflowHistoryEntry(
-            version = nextVersion,
-            modifiedBy = modifiedBy,
-            modifiedAt = Instant.now().toString(),
-            tree = tree
-        )
-        File(dir, "history_${timestamp}.json")
-            .writeText(objectMapper.writeValueAsString(entry))
     }
 
-    fun listHistory(): List<WorkflowHistoryEntry> {
-        return historyDir.listFiles()
-            ?.filter { it.name.startsWith("history_") && it.name.endsWith(".json") }
-            ?.sortedByDescending { it.name }
-            ?.map { objectMapper.readValue(it, WorkflowHistoryEntry::class.java) }
-            ?: emptyList()
+    suspend fun listHistory(): List<WorkflowHistoryEntry> {
+        val query = Query().with(Sort.by(Sort.Direction.DESC, "modifiedAt"))
+        val docs = template.find(query, WorkflowHistoryMongoDocument::class.java)
+            .collectList().awaitFirstOrNull() ?: emptyList()
+        return docs.map { doc ->
+            WorkflowHistoryEntry(
+                id = doc.id,
+                version = doc.version,
+                modifiedBy = doc.modifiedBy,
+                modifiedAt = doc.modifiedAt,
+                units = doc.units.map { it.toDomain() }
+            )
+        }
     }
 
-    fun rollbackTo(version: Int): WorkflowTree? {
-        return listHistory().find { it.version == version }?.tree
+    suspend fun rollbackTo(version: Int): List<WorkflowUnit>? {
+        val query = Query(Criteria.where("version").`is`(version))
+        return template.findOne(query, WorkflowHistoryMongoDocument::class.java)
+            .awaitFirstOrNull()
+            ?.units
+            ?.map { it.toDomain() }
     }
 }

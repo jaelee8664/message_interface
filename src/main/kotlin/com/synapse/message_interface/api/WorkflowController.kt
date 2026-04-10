@@ -9,7 +9,6 @@ import com.synapse.message_interface.workflow.WorkflowConditionValidator
 import com.synapse.message_interface.workflow.WorkflowDiffService
 import com.synapse.message_interface.workflow.WorkflowHistoryManager
 import com.synapse.message_interface.workflow.WorkflowRegistry
-import tools.jackson.databind.ObjectMapper
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -20,7 +19,6 @@ class WorkflowController(
     private val historyManager: WorkflowHistoryManager,
     private val conditionValidator: WorkflowConditionValidator,
     private val persistenceConfig: WorkflowPersistenceConfig,
-    private val objectMapper: ObjectMapper,
     private val receptionManager: ReceptionManager,
     private val referenceConfigService: ReferenceConfigService,
     private val diffService: WorkflowDiffService
@@ -47,7 +45,7 @@ class WorkflowController(
             return ResponseEntity.badRequest().body(ApiResponse.error("수정자 이름을 입력해 주세요."))
         }
 
-        // Validate REST_SERVER path not in reserved /api/** namespace
+        // Validate REST_SERVER path not in reserved /synapse/** namespace
         val reservedPathUnit = req.unit.nodes.firstOrNull { node ->
             node.node0?.protocol == com.synapse.message_interface.domain.ProtocolType.REST_SERVER &&
             node.node0.path?.startsWith("/synapse/") == true
@@ -70,13 +68,11 @@ class WorkflowController(
             return ResponseEntity.badRequest().body(ApiResponse.error(msg))
         }
 
-        val currentTree = WorkflowTree(registry.getAll())
-        historyManager.save(currentTree, req.modifiedBy)
+        historyManager.save(registry.getAll(), req.modifiedBy)
 
         registry.addOrUpdate(req.unit)
         receptionManager.restartUnit(req.unit)
-        val newTree = WorkflowTree(registry.getAll())
-        persistenceConfig.save(newTree, objectMapper)
+        persistenceConfig.saveUnit(req.unit)
 
         return ResponseEntity.ok(ApiResponse.ok(req.unit))
     }
@@ -86,12 +82,10 @@ class WorkflowController(
         if (req.password != editPassword) {
             return ResponseEntity.status(403).body(ApiResponse.error("비밀번호가 올바르지 않습니다."))
         }
-        val currentTree = WorkflowTree(registry.getAll())
-        historyManager.save(currentTree, req.modifiedBy)
+        historyManager.save(registry.getAll(), req.modifiedBy)
         registry.remove(req.unitId)
         receptionManager.stopHandlers(req.unitId)
-        val newTree = WorkflowTree(registry.getAll())
-        persistenceConfig.save(newTree, objectMapper)
+        persistenceConfig.deleteUnit(req.unitId)
         return ResponseEntity.ok(ApiResponse.ok("삭제 완료"))
     }
 
@@ -114,10 +108,10 @@ class WorkflowController(
     }
 
     @GetMapping("/history")
-    fun getHistory() = ResponseEntity.ok(ApiResponse.ok(historyManager.listHistory()))
+    suspend fun getHistory() = ResponseEntity.ok(ApiResponse.ok(historyManager.listHistory()))
 
     @GetMapping("/diff")
-    fun getDiff(@RequestParam version: Int): ResponseEntity<ApiResponse<*>> {
+    suspend fun getDiff(@RequestParam version: Int): ResponseEntity<ApiResponse<*>> {
         val entry = historyManager.listHistory().find { it.version == version }
             ?: return ResponseEntity.badRequest().body(ApiResponse.error("버전 $version 을 찾을 수 없습니다."))
         val currentTree = WorkflowTree(registry.getAll())
@@ -129,10 +123,10 @@ class WorkflowController(
         if (req.password != editPassword) {
             return ResponseEntity.status(403).body(ApiResponse.error("비밀번호가 올바르지 않습니다."))
         }
-        val tree = historyManager.rollbackTo(req.version)
+        val units = historyManager.rollbackTo(req.version)
             ?: return ResponseEntity.badRequest().body(ApiResponse.error("해당 버전을 찾을 수 없습니다."))
-        registry.load(tree)
-        persistenceConfig.save(tree, objectMapper)
+        registry.load(WorkflowTree(units))
+        persistenceConfig.replaceAll(units)
         return ResponseEntity.ok(ApiResponse.ok("버전 ${req.version}으로 롤백 완료"))
     }
 }

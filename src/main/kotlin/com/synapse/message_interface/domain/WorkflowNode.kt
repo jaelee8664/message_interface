@@ -1,11 +1,12 @@
 package com.synapse.message_interface.domain
 
 import com.synapse.message_interface.domain.node.*
+import org.springframework.data.mongodb.core.mapping.Field
 
 enum class NodeType { NODE0, NODE1, NODE2, NODE3, NODE4, NODE5 }
 
 data class WorkflowNode(
-    val id: String,
+    @field:Field("id") val id: String,
     val nodeType: NodeType,
     val node0: Node0Definition? = null,
     val node1: Node1Definition? = null,
@@ -26,7 +27,7 @@ data class WorkflowNode(
 data class NodePosition(val x: Double, val y: Double)
 
 data class WorkflowEdge(
-    val id: String,
+    @field:Field("id") val id: String,
     val sourceNodeId: String,
     val targetNodeId: String,
     val isDashed: Boolean = false

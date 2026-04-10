@@ -41,7 +41,7 @@ data class WorkflowDiffResult(
 class WorkflowDiffService(private val objectMapper: ObjectMapper) {
 
     fun diff(beforeEntry: WorkflowHistoryEntry, afterTree: WorkflowTree): WorkflowDiffResult {
-        val beforeById = beforeEntry.tree.units.associateBy { it.id }
+        val beforeById = beforeEntry.units.associateBy { it.id }
         val afterById  = afterTree.units.associateBy { it.id }
         val allIds     = (beforeById.keys + afterById.keys).toSet()
 
@@ -73,7 +73,7 @@ class WorkflowDiffService(private val objectMapper: ObjectMapper) {
         return WorkflowDiffResult(
             version    = beforeEntry.version,
             modifiedBy = beforeEntry.modifiedBy,
-            modifiedAt = beforeEntry.modifiedAt,
+            modifiedAt = beforeEntry.modifiedAt.toString(),
             unitDiffs  = unitDiffs
         )
     }

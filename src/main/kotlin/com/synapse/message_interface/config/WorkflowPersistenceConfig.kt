@@ -1,77 +1,87 @@
 package com.synapse.message_interface.config
 
-import tools.jackson.databind.ObjectMapper
 import com.synapse.message_interface.domain.WorkflowTree
+import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.workflow.WorkflowRegistry
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.reactive.awaitFirstOrNull
+import org.bson.Document
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.ApplicationRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
-import java.io.File
-import java.time.Instant
+import org.springframework.data.mongodb.core.ReactiveMongoTemplate
+import org.springframework.data.mongodb.core.query.Criteria
+import org.springframework.data.mongodb.core.query.Query
 
 @Configuration
 class WorkflowPersistenceConfig(
-    // Optional MongoDB repo — null if MongoDB is not configured
-    @Autowired(required = false) private val mongoRepo: MongoWorkflowRepository? = null
+    private val mongoRepo: MongoWorkflowRepository,
+    private val template: ReactiveMongoTemplate
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    companion object {
-        const val WORKFLOW_FILE = "workflow.json"
-    }
-
     @Bean
     @Order(1)
-    fun workflowLoader(registry: WorkflowRegistry, objectMapper: ObjectMapper) = ApplicationRunner {
-        // 1. Try MongoDB first
-        var loaded = false
-        if (mongoRepo != null) {
-            runCatching {
-                val doc = runBlocking { mongoRepo!!.findById("singleton").awaitFirstOrNull() }
-                if (doc != null) {
-                    registry.load(doc.tree)
-                    log.info("[WorkflowPersistence] MongoDB에서 워크플로우 로드 완료 (${doc.tree.units.size}개 단위)")
-                    loaded = true
+    fun workflowLoader(registry: WorkflowRegistry) = ApplicationRunner {
+        runBlocking {
+            var units = mongoRepo.findAll().collectList().awaitFirstOrNull() ?: emptyList()
+            log.info("[WorkflowPersistence] MongoDB에서 워크플로우 로드 시도: ${units.size}개 단위 발견")
+            if (units.isEmpty()) {
+                val migrated = migrateFromLegacyTree()
+                if (migrated.isNotEmpty()) {
+                    mongoRepo.saveAll(migrated).collectList().awaitFirstOrNull()
+                    log.info("[WorkflowPersistence] 레거시 workflow_tree → workflow_units 마이그레이션 완료 (${migrated.size}개 단위)")
+                    units = migrated
                 }
-            }.onFailure {
-                log.warn("[WorkflowPersistence] MongoDB 로드 실패, JSON 파일로 폴백: ${it.message}")
             }
-        }
 
-        // 2. Fallback to JSON file
-        if (!loaded) {
-            val file = File(WORKFLOW_FILE)
-            if (file.exists()) {
-                val tree = objectMapper.readValue(file, WorkflowTree::class.java)
-                registry.load(tree)
-                log.info("[WorkflowPersistence] workflow.json에서 로드 완료 (${tree.units.size}개 단위)")
-            }
+            log.info("[WorkflowPersistence] MongoDB에서 워크플로우 로드 완료 (${units.size}개 단위)")
+            registry.load(WorkflowTree(units))
         }
     }
 
-    suspend fun save(tree: WorkflowTree, objectMapper: ObjectMapper) {
-        // Always save to JSON file (blocking I/O → Dispatchers.IO)
-        withContext(Dispatchers.IO) {
-            File(WORKFLOW_FILE).writeText(objectMapper.writeValueAsString(tree))
-        }
-        log.debug("[WorkflowPersistence] workflow.json 저장 완료")
+    private suspend fun migrateFromLegacyTree(): List<WorkflowUnit> {
+        return try {
+            val raw = template.findOne(
+                Query(Criteria.where("_id").`is`("singleton")),
+                Document::class.java,
+                "workflow_tree"
+            ).awaitFirstOrNull() ?: return emptyList()
 
-        // Also save to MongoDB if available
-        if (mongoRepo != null) {
-            runCatching {
-                val doc = MongoWorkflowDocument(tree = tree, updatedAt = Instant.now())
-                mongoRepo!!.save(doc).awaitFirstOrNull()
-                log.debug("[WorkflowPersistence] MongoDB 저장 완료")
-            }.onFailure {
-                log.warn("[WorkflowPersistence] MongoDB 저장 실패 (JSON은 정상 저장됨): ${it.message}")
+            val unitDocs = (raw["tree"] as? Document)?.get("units")
+            val docs = when (unitDocs) {
+                is List<*> -> unitDocs.filterIsInstance<Document>()
+                else -> return emptyList()
             }
+
+            docs.map { doc ->
+                if (!doc.containsKey("_id") && doc.containsKey("id")) {
+                    doc["_id"] = doc["id"]
+                }
+                template.converter.read(WorkflowUnit::class.java, doc)
+            }
+        } catch (e: Exception) {
+            log.warn("[WorkflowPersistence] 레거시 마이그레이션 실패 (무시됨): ${e.message}")
+            emptyList()
         }
+    }
+
+    suspend fun saveUnit(unit: WorkflowUnit) {
+        mongoRepo.save(unit).awaitFirstOrNull()
+        log.debug("[WorkflowPersistence] 유닛 저장: ${unit.id}")
+    }
+
+    suspend fun deleteUnit(unitId: String) {
+        mongoRepo.deleteById(unitId).awaitFirstOrNull()
+        log.debug("[WorkflowPersistence] 유닛 삭제: $unitId")
+    }
+
+    /** 롤백 전용: 전체 교체 */
+    suspend fun replaceAll(units: List<WorkflowUnit>) {
+        mongoRepo.deleteAll().awaitFirstOrNull()
+        if (units.isNotEmpty()) mongoRepo.saveAll(units).collectList().awaitFirstOrNull()
+        log.debug("[WorkflowPersistence] 전체 유닛 교체: ${units.size}개")
     }
 }

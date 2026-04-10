@@ -2,12 +2,11 @@ import { create } from 'zustand'
 import axios from 'axios'
 
 export interface HistoryEntry {
+  id: string
   version: number
   modifiedBy: string
   modifiedAt: string
-  tree: {
-    units: Array<{ id: string; name: string; condition: { rawExpression?: string; type: string } }>
-  }
+  units: Array<{ id: string; name: string; condition: { rawExpression?: string; type: string } }>
 }
 
 export interface FieldDiff {
