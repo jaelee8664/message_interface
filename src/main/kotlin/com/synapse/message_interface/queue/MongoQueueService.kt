@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.bson.Document
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.data.domain.Sort
 import org.springframework.data.mongodb.core.FindAndModifyOptions
 import org.springframework.data.mongodb.core.ReactiveMongoTemplate
@@ -25,7 +24,6 @@ import java.time.Instant
 import java.util.UUID
 
 @Component
-@ConditionalOnBean(ReactiveMongoTemplate::class)
 class MongoQueueService(private val template: ReactiveMongoTemplate) {
 
     private val log = LoggerFactory.getLogger(javaClass)

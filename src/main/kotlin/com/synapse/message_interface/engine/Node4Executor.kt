@@ -19,7 +19,6 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import reactor.core.publisher.Mono
@@ -37,8 +36,7 @@ class Node4Executor(
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val kafkaProducerPool: KafkaProducerPool,
-    @Autowired(required = false)
-    private val mongoQueueService: MongoQueueService? = null
+    private val mongoQueueService: MongoQueueService
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -247,12 +245,10 @@ class Node4Executor(
     // ── MongoDB Queue ─────────────────────────────────────────────────────────
 
     private suspend fun sendViaMongoQueue(data: ByteArray, definition: Node4Definition, messageId: String) {
-        val service = mongoQueueService
-            ?: throw Node4SendException("MongoDB가 활성화되어 있지 않습니다. --spring.profiles.active=mongo 옵션을 확인하세요.")
         val queueName = definition.mongoQueueName
             ?: throw Node4SendException("mongoQueueName이 설정되지 않았습니다.")
         try {
-            service.publish(queueName, data, messageId)
+            mongoQueueService.publish(queueName, data, messageId)
             log.debug("[Node4] MongoDB 큐 발행 완료: queueName=$queueName, messageId=$messageId")
         } catch (e: Exception) {
             throw Node4SendException("MongoDB 큐 발행 실패 (queueName=$queueName): ${e.message}", e)

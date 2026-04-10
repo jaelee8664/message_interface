@@ -7,7 +7,6 @@ import com.synapse.message_interface.engine.WorkflowDispatcher
 import com.synapse.message_interface.queue.MongoQueueService
 import com.synapse.message_interface.workflow.WorkflowRegistry
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.HttpStatus
@@ -32,7 +31,6 @@ import java.util.UUID
  * (predicate가 false이면 다음 HandlerMapping으로 넘어감)
  */
 @Configuration
-@ConditionalOnBean(MongoQueueService::class)
 class MongoQueueRestHandler(
     private val registry: WorkflowRegistry,
     private val dispatcher: WorkflowDispatcher,
