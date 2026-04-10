@@ -29,11 +29,18 @@ const MIN_HEIGHT = 150
 const MAX_HEIGHT = 600
 const DEFAULT_HEIGHT = 210
 
+function supportsHostPortOverride(protocol: string | null | undefined): boolean {
+  if (!protocol) return false
+  return protocol === 'REST_CLIENT' || protocol === 'WEBSOCKET_CLIENT' || protocol === 'TCP_CLIENT'
+}
+
 export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }: Props) {
   const [message, setMessage] = useState('{}')
   const [format, setFormat] = useState('JSON')
   const [node4Overrides, setNode4Overrides] = useState<Record<string, { host: string; port: string }>>({})
   const [running, setRunning] = useState(false)
+
+  const hostPortOverrideNodes = node4Nodes.filter(n => supportsHostPortOverride(n?.protocol))
 
   // Vertical resize (top edge)
   const [height, setHeight] = useState(DEFAULT_HEIGHT)
@@ -175,13 +182,13 @@ export default function SimTestDrawer({ unitId, node4Nodes, onResult, onClose }:
             </select>
           </div>
 
-          {/* NODE4 overrides — client protocols only (servers have no target address) */}
-          {node4Nodes.some(n => !n.protocol.endsWith('_SERVER')) && (
+          {/* NODE4 host/port overrides — only protocols with a target address */}
+          {hostPortOverrideNodes.length > 0 && (
             <div>
               <label className="block text-xs text-slate-400 mb-1">NODE4 오버라이드</label>
               <p className="text-[10px] text-slate-500 mb-1">비워두면 워크플로우에 설정된 주소로 전송됩니다.</p>
               <div className="space-y-1">
-                {node4Nodes.filter(n => !n.protocol.endsWith('_SERVER')).map(n => {
+                {hostPortOverrideNodes.map(n => {
                   const ov = node4Overrides[n.nodeId] ?? { host: '', port: '' }
                   return (
                     <div key={n.nodeId}>

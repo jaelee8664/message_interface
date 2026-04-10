@@ -97,6 +97,7 @@ export default function WorkflowPage() {
       .map(n => ({
         nodeId: n.id,
         label: `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`,
+        protocol: n.node4!.protocol,
         currentHost: n.node4!.targetHost,
         currentPort: n.node4!.targetPort,
       }))
