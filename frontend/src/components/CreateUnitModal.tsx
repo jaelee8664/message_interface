@@ -12,6 +12,7 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'TCP_SERVER',        label: 'TCP 서버' },
   { value: 'TCP_CLIENT',        label: 'TCP 클라이언트' },
   { value: 'KAFKA_CONSUMER',    label: 'Kafka Consumer' },
+  { value: 'MONGO_QUEUE_CONSUMER', label: 'MongoDB 큐 소비 (폴링 응답)' },
 ]
 
 const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER']
@@ -206,7 +207,19 @@ export default function CreateUnitModal({ onClose }: Props) {
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1.5">
-                      생성 후 캔버스에서 <strong className="text-slate-400">+ 노드 추가</strong> 버튼으로 NODE1~NODE5를 자유롭게 추가하고 엣지로 연결하세요.
+                      {protocol === 'MONGO_QUEUE_CONSUMER'
+                        ? (
+                          <>
+                            MongoDB 큐 소비 단위는 기본으로 <strong className="text-slate-400">NODE0 → NODE1 → NODE5</strong>가 생성됩니다.
+                            <br />
+                            필요하면 <strong className="text-slate-400">NODE2/NODE3</strong>로 가공 단계를 추가하거나, <strong className="text-slate-400">NODE5 → NODE4</strong>로 실패/성공 알림을 추가 전송할 수 있습니다.
+                          </>
+                        )
+                        : (
+                          <>
+                            생성 후 캔버스에서 <strong className="text-slate-400">+ 노드 추가</strong> 버튼으로 NODE1~NODE5를 자유롭게 추가하고 엣지로 연결하세요.
+                          </>
+                        )}
                     </p>
                   </div>
                 </div>

@@ -108,7 +108,16 @@ function NodeTraceCard({ trace }: { trace: SimulationNodeTrace }) {
 }
 
 export default function PipelineTraceView({ traces, success, response, errorMessage, durationMs }: Props) {
-  if (traces.length === 0) return null
+  if (traces.length === 0) {
+    if (!success && errorMessage) {
+      return (
+        <div className="bg-red-900/40 border border-red-700 rounded-lg px-3 py-2 text-xs text-red-300 whitespace-pre-wrap break-all">
+          <span className="font-medium">❌ 실패: </span>{errorMessage}
+        </div>
+      )
+    }
+    return null
+  }
 
   return (
     <div className="space-y-3">

@@ -40,6 +40,9 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
     // ── Private builders ──────────────────────────────────────────────────────
 
     private fun buildSuccessBody(data: Map<String, Any?>, config: Node5SuccessConfig): Pair<ByteArray?, Map<String, Any?>> {
+        if (config.passCurrentMap) {
+            return Pair(parserRegistry.getParser(config.messageFormat).serialize(data), data)
+        }
         if (config.fields.isEmpty()) return Pair(ByteArray(0), emptyMap())
         val resultMap = mutableMapOf<String, Any?>()
         for (field in config.fields) {

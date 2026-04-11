@@ -123,6 +123,8 @@ export interface Node5SuccessConfig {
   httpStatus: number
   messageFormat: MessageFormat
   fields: NodeErrorField[]
+  /** true이면 fields 설정을 무시하고 파이프라인이 만들어 온 currentMap 전체를 직렬화하여 반환한다. */
+  passCurrentMap?: boolean
 }
 
 // ── Per-node error response ───────────────────────────────────────────────────

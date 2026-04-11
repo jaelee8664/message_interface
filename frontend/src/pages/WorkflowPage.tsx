@@ -11,6 +11,8 @@ import {
   BackgroundVariant,
   NodeChange,
   EdgeChange,
+  Node as FlowNode,
+  Edge as FlowEdge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useWorkflowStore } from '../store/workflowStore'
@@ -45,8 +47,8 @@ export default function WorkflowPage() {
   const { units, selectedUnitId, fetchUnits, saveUnit } = useWorkflowStore()
   const { openPanel, closePanel, registerDeleteHandler, registerUpdateHandler, registerUpdateConditionHandler } = usePanelStore()
   const { isOpen: historyOpen, openDrawer: openHistory } = useHistoryStore()
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([])
   const [isDirty, setIsDirty] = useState(false)
   const [pendingConditions, setPendingConditions] = useState<Record<string, WorkflowCondition>>({})
 
@@ -88,19 +90,36 @@ export default function WorkflowPage() {
     return result
   }, [simResult, edges])
 
+  // NODE0 info of the currently selected unit — passed to SimTestDrawer
+  const node0Info = useMemo(() => {
+    const unit = units.find(u => u.id === selectedUnitId)
+    const node0 = unit?.nodes.find(n => n.nodeType === 'NODE0')?.node0
+    if (!node0) return undefined
+    return { protocol: node0.protocol as string }
+  }, [units, selectedUnitId])
+
   // NODE4 nodes of the currently selected unit — passed to SimTestDrawer
   const node4Nodes = useMemo((): Node4NodeInfo[] => {
     const unit = units.find(u => u.id === selectedUnitId)
     if (!unit) return []
     return unit.nodes
       .filter(n => n.nodeType === 'NODE4' && n.node4)
-      .map(n => ({
-        nodeId: n.id,
-        label: `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`,
-        protocol: n.node4!.protocol,
-        currentHost: n.node4!.targetHost,
-        currentPort: n.node4!.targetPort,
-      }))
+      .map(n => {
+        const isSessionProtocol = n.node4!.protocol === 'WEBSOCKET_SERVER' || n.node4!.protocol === 'TCP_SERVER'
+        const replyToSelf = isSessionProtocol ? n.node4!.targetPath == null : undefined
+        const label = isSessionProtocol
+          ? `${n.node4!.protocol} → ${replyToSelf ? '현재 유닛' : (n.node4!.targetPath ?? '?')}`
+          : `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`
+        return {
+          nodeId: n.id,
+          label,
+          protocol: n.node4!.protocol,
+          currentHost: n.node4!.targetHost,
+          currentPort: n.node4!.targetPort,
+          replyToSelf,
+          currentTargetIp: isSessionProtocol ? (n.node4!.targetPath ?? undefined) : undefined,
+        }
+      })
   }, [units, selectedUnitId])
 
   const simContextValue = useMemo(() => ({
@@ -454,6 +473,7 @@ export default function WorkflowPage() {
           <SimTestDrawer
             unitId={selectedUnitId}
             node4Nodes={node4Nodes}
+            node0Info={node0Info}
             onResult={handleSimResult}
             onClose={closeSimMode}
           />

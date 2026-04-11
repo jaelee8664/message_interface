@@ -145,16 +145,21 @@ function TreeNodeRow({ treeNode, ancestorContinuations, isLast, overrides, onOve
 
         {/* Inline override inputs: 클라이언트 → host/port, 서버 IP 모드 → ip */}
         {isClientNode4 && ov !== null && (
-          <div className="flex gap-1 ml-auto shrink-0">
+          <div className="flex items-center gap-1 ml-auto shrink-0">
+            <span className="text-[10px] text-amber-500/80 shrink-0 select-none" title="테스트 실행 시 이 주소로 오버라이드됩니다. 비워두면 워크플로우 설정값 사용.">
+              ✎ 주소 오버라이드
+            </span>
             <input
-              className="w-24 bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white font-mono"
+              className="w-24 bg-slate-700 border border-amber-700/50 rounded px-1.5 py-0.5 text-xs text-white font-mono"
               placeholder={node.node4?.targetHost ?? 'host'}
+              title="테스트용 host 오버라이드 (비워두면 워크플로우 설정값 사용)"
               value={ov.host}
               onChange={e => onOverrideChange(node.id, 'host', e.target.value)}
             />
             <input
-              className="w-16 bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white font-mono"
+              className="w-16 bg-slate-700 border border-amber-700/50 rounded px-1.5 py-0.5 text-xs text-white font-mono"
               placeholder={node.node4?.targetPort != null ? String(node.node4.targetPort) : 'port'}
+              title="테스트용 port 오버라이드 (비워두면 워크플로우 설정값 사용)"
               type="number"
               value={ov.port}
               onChange={e => onOverrideChange(node.id, 'port', e.target.value)}
@@ -162,10 +167,14 @@ function TreeNodeRow({ treeNode, ancestorContinuations, isLast, overrides, onOve
           </div>
         )}
         {isServerIpNode4 && ov !== null && (
-          <div className="flex gap-1 ml-auto shrink-0">
+          <div className="flex items-center gap-1 ml-auto shrink-0">
+            <span className="text-[10px] text-amber-500/80 shrink-0 select-none" title="테스트 실행 시 이 IP로 오버라이드됩니다. 비워두면 워크플로우 설정값 사용.">
+              ✎ IP 오버라이드
+            </span>
             <input
-              className="w-32 bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white font-mono"
+              className="w-32 bg-slate-700 border border-amber-700/50 rounded px-1.5 py-0.5 text-xs text-white font-mono"
               placeholder={node.node4?.targetPath ?? '대상 IP'}
+              title="테스트용 대상 IP 오버라이드 (비워두면 워크플로우 설정값 사용)"
               value={ov.ip}
               onChange={e => onOverrideChange(node.id, 'ip', e.target.value)}
             />

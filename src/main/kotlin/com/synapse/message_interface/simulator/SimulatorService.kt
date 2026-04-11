@@ -7,21 +7,27 @@ import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.engine.MessagePipeline
 import com.synapse.message_interface.engine.SimulationTraceCollector
 import com.synapse.message_interface.parser.MessageParserRegistry
+import com.synapse.message_interface.queue.MongoQueueService
 import com.synapse.message_interface.workflow.WorkflowRegistry
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.stereotype.Service
+import java.util.UUID
 
 @Service
 class SimulatorService(
     private val workflowRegistry: WorkflowRegistry,
     private val messagePipeline: MessagePipeline,
     private val parserRegistry: MessageParserRegistry,
-    private val scenarioStore: ScenarioStore
+    private val scenarioStore: ScenarioStore,
+    private val unitMessageRepo: MongoSimulatorUnitMessageRepository,
+    private val mongoQueueService: MongoQueueService,
 ) {
 
     /**
      * Injects a message directly into a specific workflow unit and returns per-node trace results.
      * Dead letters are NOT written — this is a simulation, not a real failure.
+     * 입력 메세지는 해당 유닛의 simulator_unit_messages 도큐먼트에 덮어써서 저장된다.
      */
     suspend fun simulateUnit(req: SimulateUnitRequest): UnitSimulationResult {
         val unit = workflowRegistry.findById(req.unitId)
@@ -55,16 +61,93 @@ class SimulatorService(
         val traceCollector = SimulationTraceCollector()
         val startMs = System.currentTimeMillis()
 
-        return try {
-            val result = messagePipeline.execute(context, effectiveUnit, traceCollector)
+        val result = try {
+            val pipelineResult = messagePipeline.execute(context, effectiveUnit, traceCollector)
             UnitSimulationResult(
                 success = true,
                 nodeTraces = traceCollector.getTraces(),
-                response = result.body?.toString(Charsets.UTF_8),
-                httpStatus = result.httpStatus,
+                response = pipelineResult.body?.toString(Charsets.UTF_8),
+                httpStatus = pipelineResult.httpStatus,
                 durationMs = System.currentTimeMillis() - startMs
             )
         } catch (e: Exception) {
+            UnitSimulationResult(
+                success = false,
+                nodeTraces = traceCollector.getTraces(),
+                errorMessage = e.message,
+                durationMs = System.currentTimeMillis() - startMs
+            )
+        }
+
+        // unitId = _id 이므로 save()가 자동으로 upsert 역할을 한다
+        unitMessageRepo.save(SimulatorUnitMessage(
+            unitId = req.unitId,
+            message = req.message,
+            format = req.format,
+            endpoint = effectiveEndpoint,
+            protocol = effectiveProtocol,
+            metadata = req.metadata,
+            node4Overrides = req.node4Overrides
+        )).awaitFirstOrNull()
+
+        return result
+    }
+
+    /**
+     * MONGO_QUEUE_CONSUMER 유닛 전용 실제 흐름 테스트.
+     *
+     * 1. [payload]를 해당 유닛의 큐에 발행
+     * 2. 발행한 메세지를 즉시 디큐하여 파이프라인 실행
+     * 3. 노드별 트레이스와 함께 결과 반환
+     *
+     * 큐에 다른 PENDING 메세지가 먼저 있으면 그 메세지가 먼저 소비될 수 있다.
+     */
+    suspend fun enqueueAndConsume(unitId: String, payload: String): UnitSimulationResult {
+        val unit = workflowRegistry.findById(unitId)
+            ?: return UnitSimulationResult(success = false, nodeTraces = emptyList(), errorMessage = "유닛을 찾을 수 없습니다: $unitId")
+
+        val node0 = unit.nodes.firstOrNull { it.nodeType == NodeType.NODE0 }?.node0
+            ?: return UnitSimulationResult(success = false, nodeTraces = emptyList(), errorMessage = "NODE0가 없습니다.")
+        val queueName = node0.mongoQueueName
+            ?: return UnitSimulationResult(success = false, nodeTraces = emptyList(), errorMessage = "NODE0에 큐 이름이 설정되지 않았습니다.")
+        val path = node0.path ?: ""
+
+        // 1) 발행
+        val messageId = UUID.randomUUID().toString()
+        mongoQueueService.publish(queueName, payload.toByteArray(Charsets.UTF_8), messageId)
+
+        // 2) 디큐
+        val lockId = UUID.randomUUID().toString()
+        val message = mongoQueueService.dequeue(queueName, lockId)
+            ?: return UnitSimulationResult(success = true, nodeTraces = emptyList(), httpStatus = 204, errorMessage = "디큐 결과 없음 — 큐가 비어있습니다.")
+
+        val ctx = MessageContext(
+            rawBytes = message.payload,
+            endpoint = path,
+            protocol = "MONGO_QUEUE_CONSUMER",
+            metadata = mapOf(
+                "messageId" to message.messageId,
+                "queueName" to queueName,
+                "publishedAt" to message.publishedAt.toString()
+            )
+        )
+
+        val traceCollector = SimulationTraceCollector()
+        val startMs = System.currentTimeMillis()
+        return try {
+            val pipelineResult = messagePipeline.execute(ctx, unit, traceCollector)
+            mongoQueueService.markDone(message)
+            UnitSimulationResult(
+                success = true,
+                nodeTraces = traceCollector.getTraces(),
+                response = pipelineResult.body?.toString(Charsets.UTF_8),
+                httpStatus = pipelineResult.httpStatus,
+                durationMs = System.currentTimeMillis() - startMs
+            )
+        } catch (e: Exception) {
+            val newRetryCount = message.retryCount + 1
+            if (newRetryCount >= node0.mongoQueueMaxRetries) mongoQueueService.markFailed(message)
+            else mongoQueueService.resetPending(message, incrementRetry = true)
             UnitSimulationResult(
                 success = false,
                 nodeTraces = traceCollector.getTraces(),

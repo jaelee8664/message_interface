@@ -41,6 +41,8 @@ export default function ReferencePage() {
       <div className="space-y-4">
         {renderSection('로그', 'log', config, setConfig)}
         {renderSection('히스토리', 'history', config, setConfig)}
+        {renderSection('Dead Letter', 'deadLetter', config, setConfig)}
+        {renderSection('MongoDB 큐', 'mongoQueue', config, setConfig)}
       </div>
     </div>
   )
@@ -64,28 +66,48 @@ function renderFields(
       )
     }
 
+    const isBool = typeof value === 'boolean'
     const isNum = typeof value === 'number'
+
+    const handleChange = (newVal: any) => {
+      setConfig((prev) => {
+        if (subKey) {
+          return {
+            ...prev,
+            [sectionKey]: {
+              ...prev[sectionKey],
+              [subKey]: { ...(prev[sectionKey]?.[subKey] ?? {}), [field]: newVal },
+            },
+          }
+        }
+        return { ...prev, [sectionKey]: { ...prev[sectionKey], [field]: newVal } }
+      })
+    }
+
+    if (isBool) {
+      return (
+        <div key={`${subKey ?? ''}-${field}`} className="flex items-center gap-3">
+          <label className="text-xs text-slate-400 w-40 shrink-0">{field}</label>
+          <button
+            onClick={() => handleChange(!value)}
+            className={`relative w-10 h-5 rounded-full transition-colors ${value ? 'bg-blue-600' : 'bg-slate-600'}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${value ? 'translate-x-5' : 'translate-x-0'}`}
+            />
+          </button>
+          <span className="text-xs text-slate-400">{value ? 'ON' : 'OFF'}</span>
+        </div>
+      )
+    }
+
     return (
       <div key={`${subKey ?? ''}-${field}`} className="flex items-center gap-3">
         <label className="text-xs text-slate-400 w-40 shrink-0">{field}</label>
         <input
           type={isNum ? 'number' : 'text'}
           value={String(value)}
-          onChange={(e) => {
-            const newVal = isNum ? Number(e.target.value) : e.target.value
-            setConfig((prev) => {
-              if (subKey) {
-                return {
-                  ...prev,
-                  [sectionKey]: {
-                    ...prev[sectionKey],
-                    [subKey]: { ...(prev[sectionKey]?.[subKey] ?? {}), [field]: newVal },
-                  },
-                }
-              }
-              return { ...prev, [sectionKey]: { ...prev[sectionKey], [field]: newVal } }
-            })
-          }}
+          onChange={(e) => handleChange(isNum ? Number(e.target.value) : e.target.value)}
           className="flex-1 px-2 py-1 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
         />
       </div>
@@ -99,7 +121,8 @@ function renderSection(
   config: Record<string, any>,
   setConfig: React.Dispatch<React.SetStateAction<Record<string, any>>>
 ) {
-  const section = config[key] ?? {}
+  const section = config[key]
+  if (!section) return null
   return (
     <div key={key} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
       <h2 className="text-sm font-semibold text-white mb-3">{title}</h2>

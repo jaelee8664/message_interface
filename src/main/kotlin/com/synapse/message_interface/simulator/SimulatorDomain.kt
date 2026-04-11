@@ -1,12 +1,15 @@
 package com.synapse.message_interface.simulator
 
 import com.synapse.message_interface.engine.SimulationNodeTrace
+import org.springframework.data.annotation.Id
+import org.springframework.data.mongodb.core.mapping.Document
 import java.time.Instant
 
 // ── Scenario definition ───────────────────────────────────────────────────────
 
+@Document(collection = "simulator_scenarios")
 data class SimulationScenario(
-    val id: String,
+    @Id val id: String,
     val name: String,
     val description: String = "",
     val steps: List<SimulationStep>,

@@ -137,6 +137,17 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
               메세지는 PROCESSING 상태로 락을 취득한 뒤 처리됩니다. 연결이 끊기면 60초 후 PENDING으로 자동 복구되어 재소비됩니다. 응답 헤더 <code className="bg-sky-900/50 px-1 rounded">X-Queue-Message-Id</code>로 중복 수신 여부를 클라이언트에서 확인할 수 있습니다.
             </div>
           </div>
+          <div className="p-3 rounded border border-slate-600/50 bg-slate-800/50 text-xs text-slate-300 space-y-1.5">
+            <div className="font-semibold text-slate-200">GET 응답 동작</div>
+            <div className="flex items-start gap-2">
+              <span className="shrink-0 font-mono text-amber-400">204</span>
+              <span className="text-slate-400">큐에 PENDING 메세지가 없을 때 — body 없음</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="shrink-0 font-mono text-emerald-400">200</span>
+              <span className="text-slate-400">메세지를 꺼내 파이프라인 처리 성공 — NODE5 설정 body 반환</span>
+            </div>
+          </div>
         </>
       )}
 

@@ -29,7 +29,11 @@ enum class Node5ResponseType {
 data class Node5SuccessConfig(
     val httpStatus: Int = 200,
     val messageFormat: MessageFormat = MessageFormat.JSON,
-    val fields: List<NodeErrorField> = emptyList()
+    val fields: List<NodeErrorField> = emptyList(),
+    /**
+     * true이면 [fields] 설정을 무시하고 파이프라인이 만들어 온 currentMap 전체를 직렬화하여 반환한다.
+     */
+    val passCurrentMap: Boolean = false,
 )
 
 /**

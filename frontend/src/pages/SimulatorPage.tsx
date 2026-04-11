@@ -507,6 +507,12 @@ function StepResultCard({
 }) {
   const [openTrace, setOpenTrace] = useState(false)
 
+  useEffect(() => {
+    if (stepResult != null && !stepResult.overallSuccess) {
+      setOpenTrace(true)
+    }
+  }, [stepResult])
+
   if (status === 'pending') {
     return (
       <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-500 text-sm">
@@ -589,6 +595,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
   const [scenarios, setScenarios] = useState<SimulationScenario[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Omit<SimulationScenario, 'id' | 'createdAt' | 'updatedAt'>>(emptyScenario())
+  const [scenarioCreatedAt, setScenarioCreatedAt] = useState<string>('')
   const [isNew, setIsNew] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -608,6 +615,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
 
   function selectScenario(s: SimulationScenario) {
     setSelectedId(s.id)
+    setScenarioCreatedAt(s.createdAt as unknown as string)
     setEditing({ name: s.name, description: s.description, steps: s.steps, stopOnFailure: s.stopOnFailure ?? false })
     setIsNew(false)
     clearRunState()
@@ -615,6 +623,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
 
   function newScenario() {
     setSelectedId(null)
+    setScenarioCreatedAt('')
     setEditing(emptyScenario())
     setIsNew(true)
     clearRunState()
@@ -628,9 +637,10 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
   async function save() {
     setSaving(true)
     try {
+      const now = new Date().toISOString()
       const payload = isNew
-        ? { id: '', ...editing, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-        : { id: selectedId!, ...editing, createdAt: '', updatedAt: '' }
+        ? { id: '', ...editing, createdAt: now, updatedAt: now }
+        : { id: selectedId!, ...editing, createdAt: scenarioCreatedAt || now, updatedAt: now }
       const res = await fetch('/synapse/simulator/scenarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -639,6 +649,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
       const json = await res.json()
       const saved: SimulationScenario = json.data
       setSelectedId(saved.id)
+      setScenarioCreatedAt(saved.createdAt as unknown as string)
       setIsNew(false)
       await fetchScenarios()
     } finally {

@@ -50,7 +50,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
   const replyToSelf = isSessionProtocol ? def.targetPath == null : false
 
   const handleReplyToSelfToggle = (checked: boolean) => {
-    update({ targetPath: checked ? null : '' })
+    update({ targetPath: checked ? undefined : '' })
   }
 
   return (

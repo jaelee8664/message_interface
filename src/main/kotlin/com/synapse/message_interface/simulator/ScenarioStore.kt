@@ -1,62 +1,37 @@
 package com.synapse.message_interface.simulator
 
-import tools.jackson.core.type.TypeReference
-import tools.jackson.databind.ObjectMapper
-import jakarta.annotation.PostConstruct
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.stereotype.Component
-import java.io.File
 import java.time.Instant
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
- * File-backed store for simulation scenarios.
- * Persists to `simulator-scenarios.json` in the project working directory (same convention as workflow.json).
+ * MongoDB-backed store for simulation scenarios.
+ * collection: simulator_scenarios
  */
 @Component
-class ScenarioStore(private val objectMapper: ObjectMapper) {
+class ScenarioStore(private val repo: MongoSimulationScenarioRepository) {
 
-    private val file = File("simulator-scenarios.json")
-    private val scenarios = ConcurrentHashMap<String, SimulationScenario>()
+    suspend fun getAll(): List<SimulationScenario> =
+        repo.findAll().collectList().awaitFirstOrNull()
+            ?.sortedByDescending { it.updatedAt }
+            ?: emptyList()
 
-    @PostConstruct
-    fun init() {
-        if (file.exists()) {
-            runCatching {
-                val list: List<SimulationScenario> = objectMapper.readValue(
-                    file, object : TypeReference<List<SimulationScenario>>() {}
-                )
-                list.forEach { scenarios[it.id] = it }
-            }
-        }
-    }
+    suspend fun findById(id: String): SimulationScenario? =
+        repo.findById(id).awaitFirstOrNull()
 
-    fun getAll(): List<SimulationScenario> =
-        scenarios.values.sortedByDescending { it.updatedAt }
-
-    fun findById(id: String): SimulationScenario? = scenarios[id]
-
-    fun save(scenario: SimulationScenario): SimulationScenario {
+    suspend fun save(scenario: SimulationScenario): SimulationScenario {
         val toSave = if (scenario.id.isBlank()) {
             scenario.copy(id = UUID.randomUUID().toString(), createdAt = Instant.now(), updatedAt = Instant.now())
         } else {
             scenario.copy(updatedAt = Instant.now())
         }
-        scenarios[toSave.id] = toSave
-        persist()
-        return toSave
+        return repo.save(toSave).awaitFirstOrNull() ?: toSave
     }
 
-    fun delete(id: String): Boolean {
-        val removed = scenarios.remove(id) != null
-        if (removed) persist()
-        return removed
-    }
-
-    private fun persist() {
-        runCatching {
-            objectMapper.writerWithDefaultPrettyPrinter()
-                .writeValue(file, scenarios.values.toList())
-        }
+    suspend fun delete(id: String): Boolean {
+        if (repo.existsById(id).awaitFirstOrNull() != true) return false
+        repo.deleteById(id).awaitFirstOrNull()
+        return true
     }
 }

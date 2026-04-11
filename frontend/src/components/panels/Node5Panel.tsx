@@ -19,6 +19,7 @@ const DEFAULT_SUCCESS_CONFIG: Node5SuccessConfig = {
   httpStatus: 200,
   messageFormat: 'JSON',
   fields: [],
+  passCurrentMap: false,
 }
 
 const DEFAULT_ERROR_CONFIG: NodeErrorResponse = {
@@ -182,69 +183,90 @@ function SuccessConfigEditor({
         </select>
       </div>
 
-      {/* Fields */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-300">응답 필드</span>
-          <button
-            onClick={addField}
-            className="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600"
-          >
-            + 추가
-          </button>
+      {/* passCurrentMap toggle */}
+      <div className="flex items-center gap-2 py-1">
+        <input
+          id="passCurrentMap"
+          type="checkbox"
+          className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+          checked={config.passCurrentMap ?? false}
+          onChange={(e) => update({ passCurrentMap: e.target.checked })}
+        />
+        <label htmlFor="passCurrentMap" className="text-xs text-slate-300 cursor-pointer select-none">
+          currentMap 전체 전달
+        </label>
+      </div>
+      {config.passCurrentMap ? (
+        <div className="rounded-md bg-cyan-950/40 border border-cyan-800/40 px-3 py-2 text-xs text-cyan-400 leading-relaxed">
+          파이프라인이 만들어 온 currentMap 전체를 직렬화하여 반환합니다. 아래 필드 설정은 무시됩니다.
         </div>
-
-        {config.fields.length === 0 && (
-          <p className="text-xs text-slate-500">
-            필드를 추가하면 body가 생성됩니다. 없으면 빈 body가 전송됩니다.
-          </p>
-        )}
-
-        {config.fields.map((field, idx) => (
-          <div key={idx} className="space-y-1 p-2 rounded bg-slate-800/60 border border-slate-700">
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                className="flex-1 px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                value={field.key}
-                onChange={(e) => updateField(idx, { key: e.target.value })}
-                placeholder="key"
-              />
-              <select
-                className="px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
-                value={field.source}
-                onChange={(e) =>
-                  updateField(idx, { source: e.target.value as NodeErrorFieldSource, value: '' })
-                }
-              >
-                {SUCCESS_SOURCE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+      ) : (
+        <>
+          {/* Fields */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-300">응답 필드</span>
               <button
-                onClick={() => removeField(idx)}
-                className="text-red-400 hover:text-red-300 text-xs px-1"
+                onClick={addField}
+                className="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600"
               >
-                ✕
+                + 추가
               </button>
             </div>
-            <input
-              type="text"
-              className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              value={field.value}
-              onChange={(e) => updateField(idx, { value: e.target.value })}
-              placeholder={
-                field.source === 'LITERAL'
-                  ? '고정 문자열 값'
-                  : 'currentMap 키 (예: couponId)'
-              }
-            />
-          </div>
-        ))}
-      </div>
 
-      {/* Preview */}
-      <SuccessFieldPreview fields={config.fields} />
+            {config.fields.length === 0 && (
+              <p className="text-xs text-slate-500">
+                필드를 추가하면 body가 생성됩니다. 없으면 빈 body가 전송됩니다.
+              </p>
+            )}
+
+            {config.fields.map((field, idx) => (
+              <div key={idx} className="space-y-1 p-2 rounded bg-slate-800/60 border border-slate-700">
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    className="flex-1 px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    value={field.key}
+                    onChange={(e) => updateField(idx, { key: e.target.value })}
+                    placeholder="key"
+                  />
+                  <select
+                    className="px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+                    value={field.source}
+                    onChange={(e) =>
+                      updateField(idx, { source: e.target.value as NodeErrorFieldSource, value: '' })
+                    }
+                  >
+                    {SUCCESS_SOURCE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => removeField(idx)}
+                    className="text-red-400 hover:text-red-300 text-xs px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  value={field.value}
+                  onChange={(e) => updateField(idx, { value: e.target.value })}
+                  placeholder={
+                    field.source === 'LITERAL'
+                      ? '고정 문자열 값'
+                      : 'currentMap 키 (예: couponId)'
+                  }
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Preview */}
+          <SuccessFieldPreview fields={config.fields} />
+        </>
+      )}
     </div>
   )
 }

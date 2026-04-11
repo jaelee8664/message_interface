@@ -1,49 +1,89 @@
 package com.synapse.message_interface.config
 
+import jakarta.annotation.PostConstruct
+import kotlinx.coroutines.reactive.awaitFirstOrNull
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
-import org.springframework.core.io.ResourceLoader
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.mongodb.core.ReactiveMongoTemplate
 import org.springframework.stereotype.Service
-import org.yaml.snakeyaml.Yaml
-import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 
 @Service
-class ReferenceConfigService(private val resourceLoader: ResourceLoader) {
+class ReferenceConfigService(
+    private val template: ReactiveMongoTemplate,
+    @Value("\${workflow.editPassword:admin}") private val editPassword: String
+) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    // 외부 경로(프로젝트 루트 / JAR 옆): 읽기·쓰기 가능
-    private val referenceFile = File("reference.yaml")
+    companion object {
+        const val COLLECTION = "reference_config"
+        const val DOC_ID = "main"
+    }
 
-    init {
-        // 외부 파일이 없으면 클래스패스의 기본값을 복사
-        if (!referenceFile.exists()) {
-            runCatching {
-                val classpath = resourceLoader.getResource("classpath:reference.yaml")
-                if (classpath.exists()) {
-                    referenceFile.writeText(classpath.inputStream.bufferedReader().readText())
-                    log.info("[ReferenceConfig] 기본 reference.yaml을 ${referenceFile.absolutePath}로 복사했습니다.")
-                }
-            }.onFailure {
-                log.warn("[ReferenceConfig] 기본 reference.yaml 복사 실패: ${it.message}")
+    private val cache = AtomicReference<Map<String, Any?>>(emptyMap())
+
+    @PostConstruct
+    fun init() {
+        runBlocking {
+            val existing = loadFromMongo()
+            if (existing == null) {
+                val defaults = loadDefaults()
+                saveToMongo(defaults)
+                cache.set(defaults)
+                log.info("[ReferenceConfig] MongoDB에 기본값을 시드했습니다.")
+            } else {
+                cache.set(existing)
+                log.info("[ReferenceConfig] MongoDB에서 설정을 로드했습니다.")
             }
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    fun getConfig(): Map<String, Any?> {
-        if (!referenceFile.exists()) return emptyMap()
-        return Yaml().load(referenceFile.readText()) as? Map<String, Any?> ?: emptyMap()
-    }
+    fun getConfig(): Map<String, Any?> = cache.get()
 
     fun saveConfig(data: Map<String, Any?>) {
-        referenceFile.writeText(Yaml().dump(data))
+        runBlocking { saveToMongo(data) }
+        cache.set(data)
     }
+
+    fun getEditPassword(): String = editPassword
+
+    // ── MongoDB I/O ───────────────────────────────────────────────────────────
 
     @Suppress("UNCHECKED_CAST")
-    fun getEditPassword(): String {
-        val workflow = getConfig()["workflow"] as? Map<*, *>
-        return workflow?.get("editPassword") as? String
-            ?: System.getenv("WORKFLOW_EDIT_PASSWORD")
-            ?: "admin"
+    private suspend fun loadFromMongo(): Map<String, Any?>? {
+        val doc = template.findById(DOC_ID, org.bson.Document::class.java, COLLECTION)
+            .awaitFirstOrNull() ?: return null
+        return doc.toMap().filterKeys { it != "_id" } as Map<String, Any?>
     }
 
+    private suspend fun saveToMongo(data: Map<String, Any?>) {
+        val doc = org.bson.Document(data).append("_id", DOC_ID)
+        template.save(doc, COLLECTION).awaitFirstOrNull()
+    }
+
+    // ── Seed defaults ─────────────────────────────────────────────────────────
+
+    private fun loadDefaults(): Map<String, Any?> = mapOf(
+        "log" to mapOf(
+            "retentionDays" to 7,
+            "maxSizeGb" to 10,
+            "directory" to "message-logs",
+            "cleanupIntervalHours" to 24
+        ),
+        "history" to mapOf(
+            "maxVersions" to 10
+        ),
+        "deadLetter" to mapOf(
+            "enabled" to true,
+            "retentionDays" to 30,
+            "directory" to "dead-letters",
+            "cleanupIntervalHours" to 24
+        ),
+        "mongoQueue" to mapOf(
+            "doneRetentionHours" to 24,
+            "failedRetentionDays" to 7,
+            "cleanupIntervalMinutes" to 60
+        )
+    )
 }

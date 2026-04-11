@@ -40,7 +40,7 @@ class WorkflowHistoryManager(
     private val maxHistory: Int
         get() {
             val history = referenceConfigService.getConfig()["history"] as? Map<*, *>
-            return (history?.get("maxVersions") as? Int) ?: 10
+            return (history?.get("maxVersions") as? Number)?.toInt() ?: 10
         }
 
     @PostConstruct

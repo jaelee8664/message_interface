@@ -1,3 +1,6 @@
+workflow:
+  editPassword: ${WORKFLOW_EDIT_PASSWORD:admin}
+
 spring:
   application:
     name: message-interface

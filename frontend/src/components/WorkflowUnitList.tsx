@@ -12,6 +12,9 @@ const PROTOCOL_LABEL: Record<ProtocolType, string> = {
   KAFKA_CONSUMER: 'Kafka',
   KAFKA_PUBLISHER: 'Kafka Pub',
   REST_SERVER: 'REST',
+  REST_CLIENT: 'REST Client',
+  MONGO_QUEUE_CONSUMER: 'MQ Consumer',
+  MONGO_QUEUE_PUBLISHER: 'MQ Publisher',
 }
 
 const PROTOCOL_COLOR: Record<ProtocolType, string> = {
@@ -22,6 +25,9 @@ const PROTOCOL_COLOR: Record<ProtocolType, string> = {
   KAFKA_CONSUMER: 'bg-orange-700 text-orange-100',
   KAFKA_PUBLISHER: 'bg-orange-800 text-orange-200',
   REST_SERVER: 'bg-violet-700 text-violet-100',
+  REST_CLIENT: 'bg-violet-800 text-violet-200',
+  MONGO_QUEUE_CONSUMER: 'bg-teal-700 text-teal-100',
+  MONGO_QUEUE_PUBLISHER: 'bg-teal-800 text-teal-200',
 }
 
 function getNode0Protocol(unit: WorkflowUnit): ProtocolType | null {

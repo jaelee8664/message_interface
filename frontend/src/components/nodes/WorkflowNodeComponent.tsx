@@ -10,7 +10,7 @@ interface WorkflowNodeData {
 }
 
 export default function WorkflowNodeComponent({ id, data, selected }: NodeProps) {
-  const d = data as WorkflowNodeData
+  const d = data as unknown as WorkflowNodeData
   const { traceMap, activeNodeId } = useSimContext()
   const trace = traceMap[id]
   const isActive = activeNodeId === id

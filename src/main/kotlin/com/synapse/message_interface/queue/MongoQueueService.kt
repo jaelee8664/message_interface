@@ -20,11 +20,15 @@ import org.springframework.data.mongodb.core.query.Criteria
 import org.springframework.data.mongodb.core.query.Query
 import org.springframework.data.mongodb.core.query.Update
 import org.springframework.stereotype.Component
+import com.synapse.message_interface.config.ReferenceConfigService
 import java.time.Instant
 import java.util.UUID
 
 @Component
-class MongoQueueService(private val template: ReactiveMongoTemplate) {
+class MongoQueueService(
+    private val template: ReactiveMongoTemplate,
+    private val referenceConfigService: ReferenceConfigService
+) {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -36,6 +40,7 @@ class MongoQueueService(private val template: ReactiveMongoTemplate) {
     fun init() {
         ensureIndexes()
         startStaleLockRecovery()
+        startCleanupJob()
     }
 
     @PreDestroy
@@ -56,6 +61,12 @@ class MongoQueueService(private val template: ReactiveMongoTemplate) {
             CompoundIndexDefinition(
                 Document("queueName", 1).append("status", 1).append("publishedAt", 1)
             ).named("idx_queue_status_published")
+        ).subscribe()
+        // DONE/FAILED 정리용 복합 인덱스
+        indexOps.ensureIndex(
+            CompoundIndexDefinition(
+                Document("status", 1).append("processedAt", 1)
+            ).named("idx_status_processedAt")
         ).subscribe()
     }
 
@@ -152,6 +163,57 @@ class MongoQueueService(private val template: ReactiveMongoTemplate) {
             .unset("lockAt")
         template.updateFirst(query, update, MongoQueueMessage::class.java).awaitFirstOrNull()
         log.warn("[MongoQueue] FAILED 처리: messageId=${message.messageId}")
+    }
+
+    // ── Config helpers ────────────────────────────────────────────────────────
+
+    @Suppress("UNCHECKED_CAST")
+    private fun mongoQueueConfig(): Map<*, *>? =
+        referenceConfigService.getConfig()["mongoQueue"] as? Map<*, *>
+
+    private fun getDoneRetentionMs(): Long =
+        ((mongoQueueConfig()?.get("doneRetentionHours") as? Number)?.toLong() ?: 24L) * 3_600_000L
+
+    private fun getFailedRetentionMs(): Long =
+        ((mongoQueueConfig()?.get("failedRetentionDays") as? Number)?.toLong() ?: 7L) * 86_400_000L
+
+    private fun getCleanupIntervalMs(): Long =
+        ((mongoQueueConfig()?.get("cleanupIntervalMinutes") as? Number)?.toLong() ?: 60L) * 60_000L
+
+    // ── DONE/FAILED 정리 ──────────────────────────────────────────────────────
+
+    private fun startCleanupJob() {
+        scope.launch {
+            while (true) {
+                delay(getCleanupIntervalMs())
+                try {
+                    runCleanup()
+                } catch (e: Exception) {
+                    log.error("[MongoQueue] 정리 오류: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    private suspend fun runCleanup() {
+        val doneThreshold = Instant.now().minusMillis(getDoneRetentionMs())
+        val failedThreshold = Instant.now().minusMillis(getFailedRetentionMs())
+
+        val doneQuery = Query(
+            Criteria.where("status").`is`(QueueMessageStatus.DONE)
+                .and("processedAt").lt(doneThreshold)
+        )
+        val doneResult = template.remove(doneQuery, MongoQueueMessage::class.java).awaitFirstOrNull()
+        val doneCount = doneResult?.deletedCount ?: 0
+        if (doneCount > 0) log.info("[MongoQueue] DONE 메세지 정리: ${doneCount}건 삭제")
+
+        val failedQuery = Query(
+            Criteria.where("status").`is`(QueueMessageStatus.FAILED)
+                .and("processedAt").lt(failedThreshold)
+        )
+        val failedResult = template.remove(failedQuery, MongoQueueMessage::class.java).awaitFirstOrNull()
+        val failedCount = failedResult?.deletedCount ?: 0
+        if (failedCount > 0) log.info("[MongoQueue] FAILED 메세지 정리: ${failedCount}건 삭제")
     }
 
     // ── 스테일 락 복구 ────────────────────────────────────────────────────────────
