@@ -6,12 +6,15 @@ import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.engine.MessagePipeline
 import com.synapse.message_interface.engine.SimulationTraceCollector
+import com.synapse.message_interface.log.MessageTraceLogger
 import com.synapse.message_interface.parser.MessageParserRegistry
 import com.synapse.message_interface.queue.MongoQueueService
 import com.synapse.message_interface.workflow.WorkflowRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.stereotype.Service
+import tools.jackson.databind.ObjectMapper
+import java.time.Instant
 import java.util.UUID
 
 @Service
@@ -22,6 +25,8 @@ class SimulatorService(
     private val scenarioStore: ScenarioStore,
     private val unitMessageRepo: MongoSimulatorUnitMessageRepository,
     private val mongoQueueService: MongoQueueService,
+    private val messageTraceLogger: MessageTraceLogger,
+    private val objectMapper: ObjectMapper,
 ) {
 
     /**
@@ -80,17 +85,67 @@ class SimulatorService(
         }
 
         // unitId = _id 이므로 save()가 자동으로 upsert 역할을 한다
-        unitMessageRepo.save(SimulatorUnitMessage(
-            unitId = req.unitId,
-            message = req.message,
-            format = req.format,
-            endpoint = effectiveEndpoint,
-            protocol = effectiveProtocol,
-            metadata = req.metadata,
-            node4Overrides = req.node4Overrides
-        )).awaitFirstOrNull()
+        // skipMessageSave=true이면 저장 생략 (로그 플레이 등 내부 호출 시 기존 테스트 메세지를 보존)
+        if (!req.skipMessageSave) {
+            unitMessageRepo.save(SimulatorUnitMessage(
+                unitId = req.unitId,
+                message = req.message,
+                format = req.format,
+                endpoint = effectiveEndpoint,
+                protocol = effectiveProtocol,
+                metadata = req.metadata,
+                node4Overrides = req.node4Overrides
+            )).awaitFirstOrNull()
+        }
 
         return result
+    }
+
+    // ── Log Play ──────────────────────────────────────────────────────────────
+
+    /**
+     * 지정된 초 단위 시간(1초 윈도우)에 수신된 NODE0 로그를 JSONL 파일에서 조회한다.
+     * datetime은 ISO-8601 UTC 문자열 (예: "2026-04-11T15:32:07Z").
+     * unitIds에 해당하는 유닛의 로그만 반환한다.
+     */
+    suspend fun fetchLogPlayEntries(req: LogPlayFetchRequest): List<LogPlayEntry> {
+        val from = Instant.parse(req.datetimeFrom)
+        val to = Instant.parse(req.datetimeTo)
+        val logs = messageTraceLogger.fetchNode0LogsByTimeAndUnits(from, to, req.unitIds.toSet())
+        return logs.map { log ->
+            LogPlayEntry(
+                traceId = log.traceId,
+                workflowUnitId = log.workflowUnitId,
+                workflowUnitName = log.workflowUnitName,
+                timestamp = log.timestamp.toString(),
+                message = objectMapper.writeValueAsString(log.messageSnippet),
+                format = "JSON"
+            )
+        }
+    }
+
+    /**
+     * 로그 플레이 실행: 각 LogPlayEntry를 해당 유닛의 파이프라인으로 재실행한다.
+     * 기존 저장된 테스트 메세지는 덮어쓰지 않는다(skipMessageSave=true).
+     */
+    suspend fun runLogPlay(req: LogPlayRunRequest): List<LogPlayRunResultItem> {
+        return req.entries.map { entry ->
+            val result = simulateUnit(
+                SimulateUnitRequest(
+                    unitId = entry.workflowUnitId,
+                    message = entry.message,
+                    format = entry.format,
+                    node4Overrides = req.node4Overrides,
+                    skipMessageSave = true
+                )
+            )
+            LogPlayRunResultItem(
+                traceId = entry.traceId,
+                workflowUnitId = entry.workflowUnitId,
+                workflowUnitName = entry.workflowUnitName,
+                result = result
+            )
+        }
     }
 
     /**

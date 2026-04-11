@@ -108,6 +108,51 @@ function emptyScenario(): Omit<SimulationScenario, 'id' | 'createdAt' | 'updated
   return { name: '', description: '', steps: [emptyStep(1)], stopOnFailure: false }
 }
 
+// ── Log Play types ────────────────────────────────────────────────────────────
+
+interface LogPlayEntry {
+  traceId: string
+  workflowUnitId: string
+  workflowUnitName: string
+  timestamp: string
+  message: string
+  format: string
+}
+
+interface LogPlayRunResultItem {
+  traceId: string
+  workflowUnitId: string
+  workflowUnitName: string
+  result: UnitSimulationResult
+}
+
+interface ExtendedNode4Info {
+  nodeId: string
+  unitId: string
+  label: string
+  protocol: string
+  currentHost?: string
+  currentPort?: number
+  replyToSelf?: boolean
+  currentTargetIp?: string
+}
+
+function supportsHostPortOverride(protocol: string | null | undefined): boolean {
+  if (!protocol) return false
+  return protocol === 'REST_CLIENT' || protocol === 'WEBSOCKET_CLIENT' || protocol === 'TCP_CLIENT'
+}
+
+function supportsTargetIpOverrideExt(n: ExtendedNode4Info): boolean {
+  return (n.protocol === 'WEBSOCKET_SERVER' || n.protocol === 'TCP_SERVER') && n.replyToSelf === false
+}
+
+function localDatetimeAt(d: Date): string {
+  const pad = (x: number) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+function localDatetimeNow(): string { return localDatetimeAt(new Date()) }
+function localDatetimeMinsAgo(mins: number): string { return localDatetimeAt(new Date(Date.now() - mins * 60_000)) }
+
 // ── Assertion logic ───────────────────────────────────────────────────────────
 
 function getNestedValue(obj: unknown, path: string): unknown {
@@ -265,7 +310,7 @@ function StepEditor({
   onDelete: () => void
 }) {
   const [open, setOpen] = useState(true)
-  const [node4Nodes, setNode4Nodes] = useState<Node4NodeInfo[]>([])
+  const [node4Nodes, setNode4Nodes] = useState<ExtendedNode4Info[]>([])
   const [node0Info, setNode0Info] = useState<Node0Info | null>(null)
   const [unitNodes, setUnitNodes] = useState<RawNode[]>([])
   const [unitEdges, setUnitEdges] = useState<RawEdge[]>([])
@@ -302,16 +347,26 @@ function StepEditor({
           format: info.format,
         })
 
-        // NODE4 list (for legacy state — still used by other parts)
-        const n4: Node4NodeInfo[] = nodes
+        // NODE4 list — replyToSelf은 targetPath==null인 세션 프로토콜로 판단
+        const n4: ExtendedNode4Info[] = nodes
           .filter(n => n.nodeType === 'NODE4' && n.node4)
-          .map(n => ({
-            nodeId: n.id,
-            label: `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`,
-            protocol: n.node4!.protocol,
-            currentHost: n.node4!.targetHost,
-            currentPort: n.node4!.targetPort,
-          }))
+          .map(n => {
+            const isSession = n.node4!.protocol === 'WEBSOCKET_SERVER' || n.node4!.protocol === 'TCP_SERVER'
+            const replyToSelf = isSession ? n.node4!.targetPath == null : undefined
+            const label = isSession
+              ? `${n.node4!.protocol} → ${replyToSelf ? '현재 유닛' : (n.node4!.targetPath ?? '?')}`
+              : `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`
+            return {
+              nodeId: n.id,
+              unitId: step.unitId,
+              label,
+              protocol: n.node4!.protocol,
+              currentHost: n.node4!.targetHost,
+              currentPort: n.node4!.targetPort,
+              replyToSelf,
+              currentTargetIp: isSession ? (n.node4!.targetPath ?? undefined) : undefined,
+            }
+          })
         setNode4Nodes(n4)
       })
       .catch(() => {
@@ -412,13 +467,13 @@ function StepEditor({
             </div>
           </div>
 
-          {/* Pipeline tree with inline NODE4 overrides */}
+          {/* Pipeline tree with inline CLIENT NODE4 host/port overrides */}
           {unitNodes.length > 0 && (
             <div>
               <label className="block text-xs text-slate-400 mb-1.5">
                 파이프라인
-                {node4Nodes.length > 0 && (
-                  <span className="ml-1.5 text-slate-500">(NODE4 행에서 주소 오버라이드)</span>
+                {node4Nodes.some(n => !supportsTargetIpOverrideExt(n)) && (
+                  <span className="ml-1.5 text-slate-500">(NODE4 클라이언트 행에서 주소 오버라이드)</span>
                 )}
               </label>
               <PipelineMiniMap
@@ -427,6 +482,30 @@ function StepEditor({
                 overrides={step.node4Overrides}
                 onOverrideChange={(nodeId, f, value) => setOverride(nodeId, f, value)}
               />
+            </div>
+          )}
+
+          {/* SERVER NODE4 IP overrides — WEBSOCKET_SERVER / TCP_SERVER with replyToSelf=false */}
+          {node4Nodes.some(n => supportsTargetIpOverrideExt(n)) && (
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">대상 클라이언트 IP 오버라이드</label>
+              <p className="text-[10px] text-slate-500 mb-1.5">비워두면 워크플로우에 설정된 IP로 전송됩니다.</p>
+              <div className="space-y-1.5">
+                {node4Nodes.filter(n => supportsTargetIpOverrideExt(n)).map(n => {
+                  const ov = step.node4Overrides[n.nodeId] ?? { host: '', port: '', ip: '' }
+                  return (
+                    <div key={n.nodeId}>
+                      <div className="text-[10px] text-slate-500 mb-0.5">{n.label}</div>
+                      <input
+                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white font-mono"
+                        placeholder={n.currentTargetIp ?? '예: 192.168.0.10'}
+                        value={ov.ip}
+                        onChange={e => setOverride(n.nodeId, 'ip', e.target.value)}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
 
@@ -891,10 +970,547 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
   )
 }
 
+// ── Log Play: Entry Row ───────────────────────────────────────────────────────
+
+function LogEntryRow({
+  entry,
+  selected,
+  onToggle,
+  result,
+  isRunning,
+}: {
+  entry: LogPlayEntry
+  selected: boolean
+  onToggle: () => void
+  result?: LogPlayRunResultItem
+  isRunning?: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [showTrace, setShowTrace] = useState(false)
+
+  const ts = new Date(entry.timestamp)
+  const pad = (x: number, n = 2) => String(x).padStart(n, '0')
+  const timeStr = `${pad(ts.getUTCHours())}:${pad(ts.getUTCMinutes())}:${pad(ts.getUTCSeconds())}.${pad(ts.getUTCMilliseconds(), 3)}`
+
+  let msgPreview = entry.message
+  try { msgPreview = JSON.stringify(JSON.parse(entry.message), null, 2) } catch { /* keep raw */ }
+
+  const borderColor = isRunning
+    ? 'border-blue-500/80'
+    : result
+      ? result.result.success ? 'border-green-700/60' : 'border-red-700/60'
+      : 'border-slate-600'
+  const bgColor = isRunning
+    ? 'bg-blue-900/20'
+    : result
+      ? result.result.success ? 'bg-green-900/20' : 'bg-red-900/20'
+      : 'bg-slate-800'
+
+  return (
+    <div className={`border rounded-lg overflow-hidden ${borderColor}`}>
+      <div
+        className={`flex items-center gap-2 px-3 py-2 cursor-pointer ${bgColor} hover:brightness-110`}
+        onClick={() => setExpanded(o => !o)}
+      >
+        <input
+          type="checkbox"
+          className="accent-blue-500 shrink-0"
+          checked={selected}
+          onChange={onToggle}
+          onClick={e => e.stopPropagation()}
+        />
+        <span className="font-mono text-[10px] text-slate-500 shrink-0">{entry.traceId.slice(0, 8)}…</span>
+        <span className="text-xs text-slate-300 flex-1 truncate">{entry.workflowUnitName || entry.workflowUnitId}</span>
+        <span className="text-[10px] text-slate-500 shrink-0 font-mono">{timeStr} UTC</span>
+        {isRunning && (
+          <span className="text-xs text-blue-400 shrink-0 animate-pulse">실행 중...</span>
+        )}
+        {!isRunning && result && (
+          <span className={`text-xs shrink-0 ${result.result.success ? 'text-green-400' : 'text-red-400'}`}>
+            {result.result.success ? '✓' : '✗'} {result.result.durationMs}ms
+          </span>
+        )}
+        <span className="text-slate-500 text-xs shrink-0">{expanded ? '▲' : '▼'}</span>
+      </div>
+
+      {expanded && (
+        <div className="p-3 bg-slate-800/60 space-y-2 border-t border-slate-700">
+          <div>
+            <div className="text-[10px] text-slate-400 mb-1">수신 메세지 (messageSnippet)</div>
+            <pre className="text-[10px] font-mono text-slate-300 bg-slate-900 rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap break-all">
+              {msgPreview}
+            </pre>
+          </div>
+          {result && (
+            <div>
+              <button
+                className="text-xs text-slate-400 hover:text-slate-200 mb-1 flex items-center gap-1"
+                onClick={() => setShowTrace(o => !o)}
+              >
+                파이프라인 트레이스 {showTrace ? '▲' : '▼'}
+              </button>
+              {showTrace && (
+                <PipelineTraceView
+                  traces={result.result.nodeTraces}
+                  success={result.result.success}
+                  response={result.result.response}
+                  errorMessage={result.result.errorMessage}
+                  durationMs={result.result.durationMs}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Log Play Tab ──────────────────────────────────────────────────────────────
+
+function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
+  const [datetimeFrom, setDatetimeFrom] = useState(localDatetimeMinsAgo(5))
+  const [datetimeTo, setDatetimeTo] = useState(localDatetimeNow)
+  const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set())
+  const [logEntries, setLogEntries] = useState<LogPlayEntry[]>([])
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [hasFetched, setHasFetched] = useState(false)
+  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(new Set())
+  // unitId → list of NODE4 nodes
+  const [node4ByUnit, setNode4ByUnit] = useState<Record<string, ExtendedNode4Info[]>>({})
+  const [node4Overrides, setNode4Overrides] = useState<Record<string, { host: string; port: string; ip: string }>>({})
+  const [running, setRunning] = useState(false)
+  const [results, setResults] = useState<LogPlayRunResultItem[]>([])
+  const [runError, setRunError] = useState<string | null>(null)
+  const [delayMs, setDelayMs] = useState(0)
+  const [runningTraceId, setRunningTraceId] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
+  const abortRef = useRef(false)
+
+  // 선택된 유닛들의 NODE4 정보를 유닛별로 조회
+  useEffect(() => {
+    if (selectedUnitIds.size === 0) { setNode4ByUnit({}); return }
+    const ids = Array.from(selectedUnitIds)
+    Promise.all(
+      ids.map(id =>
+        fetch(`/synapse/workflow/units/${id}`)
+          .then(r => r.json())
+          .then(json => {
+            const nodes: RawNode[] = json.data?.nodes ?? []
+            const n4 = nodes
+              .filter(n => n.nodeType === 'NODE4' && n.node4)
+              .map(n => ({
+                nodeId: n.id,
+                unitId: id,
+                label: `${n.node4!.protocol} → ${n.node4!.targetHost ?? '?'}:${n.node4!.targetPort ?? '?'}`,
+                protocol: n.node4!.protocol,
+                currentHost: n.node4!.targetHost,
+                currentPort: n.node4!.targetPort,
+                replyToSelf: (n.node4 as any).replyToSelf,
+                currentTargetIp: n.node4!.targetPath ?? undefined,
+              } as ExtendedNode4Info))
+            return { id, n4 }
+          })
+          .catch(() => ({ id, n4: [] as ExtendedNode4Info[] }))
+      )
+    ).then(results => {
+      const map: Record<string, ExtendedNode4Info[]> = {}
+      for (const { id, n4 } of results) { if (n4.length > 0) map[id] = n4 }
+      setNode4ByUnit(map)
+    })
+  }, [selectedUnitIds])
+
+  function toggleUnit(unitId: string) {
+    setSelectedUnitIds(prev => {
+      const next = new Set(prev)
+      if (next.has(unitId)) next.delete(unitId); else next.add(unitId)
+      return next
+    })
+  }
+
+  function toggleTraceId(traceId: string) {
+    setSelectedTraceIds(prev => {
+      const next = new Set(prev)
+      if (next.has(traceId)) next.delete(traceId); else next.add(traceId)
+      return next
+    })
+  }
+
+  function setOverride(nodeId: string, field: 'host' | 'port' | 'ip', value: string) {
+    setNode4Overrides(prev => ({
+      ...prev,
+      [nodeId]: { ...(prev[nodeId] ?? { host: '', port: '', ip: '' }), [field]: value },
+    }))
+  }
+
+  async function fetchLogs() {
+    if (selectedUnitIds.size === 0) return
+    setFetching(true)
+    setFetchError(null)
+    setLogEntries([])
+    setSelectedTraceIds(new Set())
+    setResults([])
+    setRunError(null)
+    try {
+      const utcFrom = new Date(datetimeFrom).toISOString().slice(0, 19) + 'Z'
+      const utcTo   = new Date(datetimeTo).toISOString().slice(0, 19) + 'Z'
+      const res = await fetch('/synapse/simulator/log-play/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datetimeFrom: utcFrom, datetimeTo: utcTo, unitIds: Array.from(selectedUnitIds) }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? '조회 실패')
+      const entries: LogPlayEntry[] = json.data ?? []
+      setLogEntries(entries)
+      setSelectedTraceIds(new Set(entries.map(e => e.traceId)))
+    } catch (e) {
+      setFetchError(String(e))
+    } finally {
+      setFetching(false)
+      setHasFetched(true)
+    }
+  }
+
+  async function run() {
+    const selected = logEntries.filter(e => selectedTraceIds.has(e.traceId))
+    if (selected.length === 0) return
+    abortRef.current = false
+    setRunning(true)
+    setResults([])
+    setRunError(null)
+    setProgress({ current: 0, total: selected.length })
+
+    const overridesPayload = Object.fromEntries(
+      Object.entries(node4Overrides)
+        .filter(([_, v]) => v.host.trim() || v.port.trim() || v.ip.trim())
+        .map(([nodeId, v]) => [nodeId, {
+          host: v.host.trim() || undefined,
+          port: v.port.trim() ? parseInt(v.port) : undefined,
+          targetIp: v.ip.trim() || undefined,
+        }])
+    )
+
+    for (let i = 0; i < selected.length; i++) {
+      if (abortRef.current) break
+      const entry = selected[i]
+      setRunningTraceId(entry.traceId)
+      setProgress({ current: i + 1, total: selected.length })
+      try {
+        const res = await fetch('/synapse/simulator/log-play/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries: [entry], node4Overrides: overridesPayload }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error ?? '실행 실패')
+        const items: LogPlayRunResultItem[] = json.data ?? []
+        setResults(prev => [...prev, ...items])
+      } catch (e) {
+        setRunError(String(e))
+        break
+      }
+      if (delayMs > 0 && i < selected.length - 1 && !abortRef.current) {
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+    }
+
+    setRunningTraceId(null)
+    setProgress(null)
+    setRunning(false)
+  }
+
+  function stop() {
+    abortRef.current = true
+  }
+
+  const selectedLogs = logEntries.filter(e => selectedTraceIds.has(e.traceId))
+  // unitId → unit name (for labels)
+  const unitNameMap = Object.fromEntries(units.map(u => [u.id, u.name]))
+  // units with at least one overridable NODE4
+  const unitsWithOverride = Object.entries(node4ByUnit).filter(([_, nodes]) =>
+    nodes.some(n => supportsHostPortOverride(n.protocol) || supportsTargetIpOverrideExt(n))
+  )
+
+  return (
+    <div className="flex gap-4 h-full overflow-hidden">
+      {/* Left: config */}
+      <div className="w-72 shrink-0 flex flex-col gap-3 overflow-y-auto pr-1">
+
+        {/* Time range */}
+        <div className="space-y-1.5">
+          <label className="block text-xs text-slate-400">
+            조회 기간
+            <span className="text-slate-500 ml-1">(현지 시간)</span>
+          </label>
+          <div>
+            <div className="text-[10px] text-slate-500 mb-0.5">시작</div>
+            <input
+              type="datetime-local"
+              step="1"
+              className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-xs text-white"
+              value={datetimeFrom}
+              onChange={e => setDatetimeFrom(e.target.value)}
+            />
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-500 mb-0.5">종료</div>
+            <input
+              type="datetime-local"
+              step="1"
+              className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-xs text-white"
+              value={datetimeTo}
+              onChange={e => setDatetimeTo(e.target.value)}
+            />
+          </div>
+          {/* Quick range shortcuts */}
+          <div className="flex gap-1 flex-wrap">
+            {([
+              { label: '1분', mins: 1 },
+              { label: '5분', mins: 5 },
+              { label: '30분', mins: 30 },
+              { label: '1시간', mins: 60 },
+            ] as { label: string; mins: number }[]).map(({ label, mins }) => (
+              <button
+                key={mins}
+                className="px-2 py-0.5 text-[10px] rounded border border-slate-600 text-slate-400 hover:text-slate-200 hover:border-slate-400 transition-colors"
+                onClick={() => { setDatetimeFrom(localDatetimeMinsAgo(mins)); setDatetimeTo(localDatetimeNow()) }}
+              >
+                최근 {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Unit selection */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-slate-400">워크플로우 유닛</label>
+            <div className="flex gap-1.5">
+              <button
+                className="text-[10px] text-blue-400 hover:text-blue-300"
+                onClick={() => setSelectedUnitIds(new Set(units.map(u => u.id)))}
+              >전체</button>
+              <span className="text-slate-600 text-[10px]">/</span>
+              <button
+                className="text-[10px] text-slate-400 hover:text-slate-300"
+                onClick={() => setSelectedUnitIds(new Set())}
+              >해제</button>
+            </div>
+          </div>
+          <div className="space-y-0.5 max-h-44 overflow-y-auto border border-slate-700 rounded p-1">
+            {units.length === 0 && (
+              <div className="text-xs text-slate-500 italic px-2 py-1">유닛 없음</div>
+            )}
+            {units.map(u => (
+              <label key={u.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-blue-500 shrink-0"
+                  checked={selectedUnitIds.has(u.id)}
+                  onChange={() => toggleUnit(u.id)}
+                />
+                <span className="text-xs text-slate-300 truncate" title={u.name}>{u.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Fetch button */}
+        <button
+          className="w-full py-2 rounded bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-40 transition-colors"
+          onClick={fetchLogs}
+          disabled={fetching || selectedUnitIds.size === 0}
+        >
+          {fetching ? '조회 중...' : '로그 불러오기'}
+        </button>
+
+        {/* Delay setting */}
+        <div className="space-y-1.5">
+          <label className="block text-xs text-slate-400">메세지 간 전송 간격</label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={0}
+              step={100}
+              className="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+              value={delayMs}
+              onChange={e => setDelayMs(Math.max(0, parseInt(e.target.value) || 0))}
+            />
+            <span className="text-[10px] text-slate-500">ms</span>
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {([
+              { label: '즉시', ms: 0 },
+              { label: '100ms', ms: 100 },
+              { label: '500ms', ms: 500 },
+              { label: '1s', ms: 1000 },
+              { label: '3s', ms: 3000 },
+              { label: '5s', ms: 5000 },
+            ] as { label: string; ms: number }[]).map(({ label, ms }) => (
+              <button
+                key={ms}
+                className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                  delayMs === ms
+                    ? 'border-blue-500 text-blue-300 bg-blue-900/30'
+                    : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:border-slate-400'
+                }`}
+                onClick={() => setDelayMs(ms)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* NODE4 overrides — grouped by unit */}
+        {unitsWithOverride.length > 0 && (
+          <div className="border-t border-slate-700 pt-3 space-y-3">
+            <div>
+              <label className="block text-xs text-slate-400">NODE4 주소 오버라이드</label>
+              <p className="text-[10px] text-slate-500 mt-0.5">비워두면 워크플로우 설정 주소를 사용합니다.</p>
+            </div>
+            {unitsWithOverride.map(([unitId, nodes]) => {
+              const hostPortNodes = nodes.filter(n => supportsHostPortOverride(n.protocol))
+              const targetIpNodes = nodes.filter(n => supportsTargetIpOverrideExt(n))
+              return (
+                <div key={unitId} className="space-y-1.5">
+                  {/* Unit name header */}
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-px flex-1 bg-slate-700" />
+                    <span className="text-[10px] font-medium text-blue-400 shrink-0 truncate max-w-[160px]" title={unitNameMap[unitId]}>
+                      {unitNameMap[unitId] ?? unitId}
+                    </span>
+                    <div className="h-px flex-1 bg-slate-700" />
+                  </div>
+                  {hostPortNodes.map(n => {
+                    const ov = node4Overrides[n.nodeId] ?? { host: '', port: '', ip: '' }
+                    return (
+                      <div key={n.nodeId}>
+                        <div className="text-[10px] text-slate-500 mb-0.5">{n.protocol}</div>
+                        <div className="flex gap-1">
+                          <input
+                            className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+                            placeholder={n.currentHost ?? 'host'}
+                            value={ov.host}
+                            onChange={e => setOverride(n.nodeId, 'host', e.target.value)}
+                          />
+                          <input
+                            className="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+                            placeholder={n.currentPort != null ? String(n.currentPort) : 'port'}
+                            type="number"
+                            value={ov.port}
+                            onChange={e => setOverride(n.nodeId, 'port', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {targetIpNodes.map(n => {
+                    const ov = node4Overrides[n.nodeId] ?? { host: '', port: '', ip: '' }
+                    return (
+                      <div key={n.nodeId}>
+                        <div className="text-[10px] text-slate-500 mb-0.5">{n.protocol} 대상 IP</div>
+                        <input
+                          className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white"
+                          placeholder={n.currentTargetIp ?? '예: 192.168.0.10'}
+                          value={ov.ip}
+                          onChange={e => setOverride(n.nodeId, 'ip', e.target.value)}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Right: logs + results */}
+      <div className="flex-1 flex flex-col gap-2 overflow-hidden min-h-0">
+        {/* Header bar */}
+        {hasFetched && logEntries.length > 0 && (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-slate-400">{logEntries.length}개 로그</span>
+            <div className="flex gap-1.5">
+              <button
+                className="text-[10px] text-blue-400 hover:text-blue-300"
+                onClick={() => setSelectedTraceIds(new Set(logEntries.map(e => e.traceId)))}
+                disabled={running}
+              >전체 선택</button>
+              <span className="text-slate-600 text-[10px]">/</span>
+              <button
+                className="text-[10px] text-slate-400 hover:text-slate-300"
+                onClick={() => setSelectedTraceIds(new Set())}
+                disabled={running}
+              >전체 해제</button>
+            </div>
+            <div className="flex-1" />
+            {runError && <span className="text-xs text-red-400 truncate max-w-48">{runError}</span>}
+            {progress && (
+              <span className="text-xs text-blue-400 shrink-0 font-mono">
+                {progress.current}/{progress.total} 처리 중
+              </span>
+            )}
+            {running ? (
+              <button
+                className="px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white text-xs font-medium transition-colors whitespace-nowrap"
+                onClick={stop}
+              >
+                ■ 중지
+              </button>
+            ) : (
+              <button
+                className="px-3 py-1.5 rounded bg-green-700 hover:bg-green-600 text-white text-xs font-medium disabled:opacity-40 transition-colors whitespace-nowrap"
+                onClick={run}
+                disabled={selectedLogs.length === 0}
+              >
+                ▶ {selectedLogs.length}개 실행
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Log list */}
+        <div className="flex-1 overflow-y-auto space-y-1.5 min-h-0">
+          {fetchError && (
+            <div className="text-xs text-red-400 px-3 py-2 bg-red-900/20 border border-red-800 rounded">{fetchError}</div>
+          )}
+          {!hasFetched && !fetching && (
+            <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
+              기간과 유닛을 선택하고 로그를 불러오세요
+            </div>
+          )}
+          {hasFetched && logEntries.length === 0 && !fetching && !fetchError && (
+            <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
+              해당 기간에 로그가 없습니다
+            </div>
+          )}
+          {logEntries.map(entry => (
+            <LogEntryRow
+              key={entry.traceId}
+              entry={entry}
+              selected={selectedTraceIds.has(entry.traceId)}
+              onToggle={() => toggleTraceId(entry.traceId)}
+              result={results.find(r => r.traceId === entry.traceId)}
+              isRunning={runningTraceId === entry.traceId}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
+
+type SimulatorTab = 'scenario' | 'logplay'
 
 export default function SimulatorPage() {
   const [units, setUnits] = useState<WorkflowUnitSummary[]>([])
+  const [activeTab, setActiveTab] = useState<SimulatorTab>('scenario')
 
   useEffect(() => {
     fetch('/synapse/workflow/units')
@@ -904,14 +1520,37 @@ export default function SimulatorPage() {
 
   return (
     <div className="flex flex-col h-full bg-slate-800 text-white">
-      <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-slate-700 shrink-0">
-        <span className="text-sm font-semibold text-white">시나리오 테스트</span>
-        <span className="text-xs text-slate-500">
-          — 단일 파이프라인 테스트는 워크플로우 캔버스 ▶ 테스트 버튼을 이용하세요
-        </span>
+      {/* Tab header */}
+      <div className="flex items-center border-b border-slate-700 shrink-0 px-4 pt-3 gap-1">
+        {([
+          { key: 'scenario', label: '시나리오 테스트' },
+          { key: 'logplay', label: '로그 플레이' },
+        ] as { key: SimulatorTab; label: string }[]).map(tab => (
+          <button
+            key={tab.key}
+            className={`px-3 py-1.5 text-sm rounded-t transition-colors ${
+              activeTab === tab.key
+                ? 'bg-slate-700 text-white font-medium border border-b-0 border-slate-600'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+        {activeTab === 'scenario' && (
+          <span className="text-xs text-slate-500 ml-2">
+            — 단일 파이프라인 테스트는 워크플로우 캔버스 ▶ 테스트 버튼을 이용하세요
+          </span>
+        )}
       </div>
+
       <div className="flex-1 overflow-hidden p-4">
-        <ScenarioTab units={units} />
+        {activeTab === 'scenario' ? (
+          <ScenarioTab units={units} />
+        ) : (
+          <LogPlayTab units={units} />
+        )}
       </div>
     </div>
   )

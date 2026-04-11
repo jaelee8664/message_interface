@@ -55,7 +55,37 @@ data class SimulateUnitRequest(
     val endpoint: String? = null,
     val protocol: String? = null,   // null → derived from unit's NODE0
     val metadata: Map<String, String> = emptyMap(),
-    val node4Overrides: Map<String, Node4Override> = emptyMap()   // nodeId → override
+    val node4Overrides: Map<String, Node4Override> = emptyMap(),   // nodeId → override
+    val skipMessageSave: Boolean = false   // true → 저장된 테스트 메세지를 덮어쓰지 않음
+)
+
+// ── Log Play ──────────────────────────────────────────────────────────────────
+
+data class LogPlayFetchRequest(
+    val datetimeFrom: String,   // ISO-8601 UTC e.g. "2026-04-11T15:32:00Z"
+    val datetimeTo: String,     // ISO-8601 UTC e.g. "2026-04-11T15:33:00Z"
+    val unitIds: List<String>   // 조회할 워크플로우 유닛 ID 목록
+)
+
+data class LogPlayEntry(
+    val traceId: String,
+    val workflowUnitId: String,
+    val workflowUnitName: String,
+    val timestamp: String,
+    val message: String,        // messageSnippet을 JSON 직렬화한 문자열
+    val format: String = "JSON"
+)
+
+data class LogPlayRunRequest(
+    val entries: List<LogPlayEntry>,
+    val node4Overrides: Map<String, Node4Override> = emptyMap()   // nodeId → override (전체 공유)
+)
+
+data class LogPlayRunResultItem(
+    val traceId: String,
+    val workflowUnitId: String,
+    val workflowUnitName: String,
+    val result: UnitSimulationResult
 )
 
 data class UnitSimulationResult(

@@ -186,6 +186,43 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         results.sortedByDescending { it.timestamp }
     }
 
+    /**
+     * 지정된 시간 범위 [from, to) 내에서 NODE0 진입 로그만 조회한다.
+     * unitIds에 포함된 유닛의 로그만 반환하며, 날짜 경계를 넘는 경우도 처리한다.
+     */
+    suspend fun fetchNode0LogsByTimeAndUnits(
+        from: java.time.Instant,
+        to: java.time.Instant,
+        unitIds: Set<String>
+    ): List<TraceLog> = withContext(Dispatchers.IO) {
+        val fromDate = from.atZone(java.time.ZoneOffset.UTC).toLocalDate()
+        val toDate = to.atZone(java.time.ZoneOffset.UTC).toLocalDate()
+
+        val results = mutableListOf<TraceLog>()
+        var date = fromDate
+        while (!date.isAfter(toDate)) {
+            val file = File(logDir, "trace_${date.format(DateTimeFormatter.ISO_LOCAL_DATE)}.jsonl")
+            if (file.exists()) {
+                file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                    reader.lineSequence().forEach { line ->
+                        runCatching {
+                            val log = objectMapper.readValue(line, TraceLog::class.java)
+                            if (log.nodeType == "NODE0" &&
+                                log.workflowUnitId in unitIds &&
+                                !log.timestamp.isBefore(from) &&
+                                log.timestamp.isBefore(to)
+                            ) {
+                                results.add(log)
+                            }
+                        }
+                    }
+                }
+            }
+            date = date.plusDays(1)
+        }
+        results.sortedBy { it.timestamp }
+    }
+
     override fun destroy() {
         channel.close()
         scope.cancel()

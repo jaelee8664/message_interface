@@ -1,6 +1,8 @@
 package com.synapse.message_interface.api
 
 import com.synapse.message_interface.api.dto.ApiResponse
+import com.synapse.message_interface.simulator.LogPlayFetchRequest
+import com.synapse.message_interface.simulator.LogPlayRunRequest
 import com.synapse.message_interface.simulator.MongoSimulatorUnitMessageRepository
 import com.synapse.message_interface.simulator.ScenarioStore
 import com.synapse.message_interface.simulator.SimulateUnitRequest
@@ -100,5 +102,36 @@ class SimulatorController(
     suspend fun runAdHoc(@RequestBody scenario: SimulationScenario): ResponseEntity<ApiResponse<*>> {
         val result = simulatorService.runAdHoc(scenario)
         return ResponseEntity.ok(ApiResponse.ok(result))
+    }
+
+    // ── Log Play ───────────────────────────────────────────────────────────────
+
+    /**
+     * 특정 초(1초 윈도우)에 수신된 NODE0 로그를 조회한다.
+     * datetime: ISO-8601 UTC 문자열 (예: "2026-04-11T15:32:07Z")
+     * unitIds: 조회할 워크플로우 유닛 ID 목록
+     */
+    @PostMapping("/log-play/fetch")
+    suspend fun fetchLogPlayEntries(@RequestBody req: LogPlayFetchRequest): ResponseEntity<ApiResponse<*>> {
+        return try {
+            val entries = simulatorService.fetchLogPlayEntries(req)
+            ResponseEntity.ok(ApiResponse.ok(entries))
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().body(ApiResponse.error(e.message ?: "조회 실패"))
+        }
+    }
+
+    /**
+     * 조회된 로그 엔트리들을 각 워크플로우 유닛으로 재실행한다.
+     * 기존 저장된 테스트 메세지는 덮어쓰지 않는다.
+     */
+    @PostMapping("/log-play/run")
+    suspend fun runLogPlay(@RequestBody req: LogPlayRunRequest): ResponseEntity<ApiResponse<*>> {
+        return try {
+            val results = simulatorService.runLogPlay(req)
+            ResponseEntity.ok(ApiResponse.ok(results))
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().body(ApiResponse.error(e.message ?: "실행 실패"))
+        }
     }
 }

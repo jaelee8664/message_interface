@@ -100,13 +100,10 @@ function TreeNodeRow({ treeNode, ancestorContinuations, isLast, overrides, onOve
   const { node, children } = treeNode
   const depth = ancestorContinuations.length
   const isNode4 = node.nodeType === 'NODE4'
-  const isServerNode4 = isNode4 && node.node4?.protocol.endsWith('_SERVER') === true
-  const isClientNode4 = isNode4 && !isServerNode4
-  // 서버 프로토콜은 targetPath가 null이 아닐 때(IP 라우팅 모드)만 오버라이드 가능
-  const isServerIpNode4 = isServerNode4 && node.node4?.targetPath != null
-  const ov = (isClientNode4 || isServerIpNode4)
-    ? (overrides[node.id] ?? { host: '', port: '', ip: '' })
-    : null
+  // 클라이언트 프로토콜(REST_CLIENT, WEBSOCKET_CLIENT, TCP_CLIENT)만 인라인 host/port 오버라이드
+  // 서버 프로토콜의 IP 오버라이드는 StepEditor의 별도 섹션에서 처리
+  const isClientNode4 = isNode4 && node.node4?.protocol.endsWith('_CLIENT') === true
+  const ov = isClientNode4 ? (overrides[node.id] ?? { host: '', port: '', ip: '' }) : null
 
   // Build the prefix string: one character-slot per ancestor depth
   // Each slot is either '│ ' (ancestor continues) or '  ' (ancestor done)
@@ -163,20 +160,6 @@ function TreeNodeRow({ treeNode, ancestorContinuations, isLast, overrides, onOve
               type="number"
               value={ov.port}
               onChange={e => onOverrideChange(node.id, 'port', e.target.value)}
-            />
-          </div>
-        )}
-        {isServerIpNode4 && ov !== null && (
-          <div className="flex items-center gap-1 ml-auto shrink-0">
-            <span className="text-[10px] text-amber-500/80 shrink-0 select-none" title="테스트 실행 시 이 IP로 오버라이드됩니다. 비워두면 워크플로우 설정값 사용.">
-              ✎ IP 오버라이드
-            </span>
-            <input
-              className="w-32 bg-slate-700 border border-amber-700/50 rounded px-1.5 py-0.5 text-xs text-white font-mono"
-              placeholder={node.node4?.targetPath ?? '대상 IP'}
-              title="테스트용 대상 IP 오버라이드 (비워두면 워크플로우 설정값 사용)"
-              value={ov.ip}
-              onChange={e => onOverrideChange(node.id, 'ip', e.target.value)}
             />
           </div>
         )}
