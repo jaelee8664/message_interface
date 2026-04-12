@@ -1,0 +1,67 @@
+{
+  "modifiedBy": "load-test-setup",
+  "password": "admin",
+  "unit": {
+    "id": "lt-websocket",
+    "name": "[부하테스트] WebSocket 서버 (NODE0→NODE1)",
+    "condition": {
+      "type": "ENDPOINT",
+      "endpointPattern": "/load-test/ws",
+      "rawExpression": "endpoint == /load-test/ws"
+    },
+    "nodes": [
+      {
+        "id": "lt-ws-n0",
+        "nodeType": "NODE0",
+        "node0": {
+          "protocol": "WEBSOCKET_SERVER",
+          "path": "/load-test/ws"
+        },
+        "position": { "x": 0, "y": 0 }
+      },
+      {
+        "id": "lt-ws-n1",
+        "nodeType": "NODE1",
+        "node1": {
+          "messageFormat": "JSON",
+          "fields": [
+            {
+              "key": "id",
+              "type": "INT",
+              "description": "요청 ID",
+              "nullable": false,
+              "mandatory": false,
+              "defaultValue": "0"
+            },
+            {
+              "key": "name",
+              "type": "STRING",
+              "description": "이름",
+              "nullable": true,
+              "mandatory": false,
+              "defaultValue": "unknown"
+            },
+            {
+              "key": "value",
+              "type": "INT",
+              "description": "값",
+              "nullable": true,
+              "mandatory": false,
+              "defaultValue": "0"
+            }
+          ],
+          "customDtos": []
+        },
+        "position": { "x": 300, "y": 0 }
+      }
+    ],
+    "edges": [
+      {
+        "id": "lt-ws-e0",
+        "sourceNodeId": "lt-ws-n0",
+        "targetNodeId": "lt-ws-n1",
+        "isDashed": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "modifiedBy": "load-test-setup",
+  "password": "admin",
+  "unit": {
+    "id": "lt-pipeline",
+    "name": "[부하테스트] 풀 파이프라인 (NODE0→NODE1→NODE2→NODE5)",
+    "condition": {
+      "type": "ENDPOINT",
+      "endpointPattern": "/load-test/pipeline",
+      "rawExpression": "endpoint == /load-test/pipeline"
+    },
+    "nodes": [
+      {
+        "id": "lt-pipe-n0",
+        "nodeType": "NODE0",
+        "node0": {
+          "protocol": "REST_SERVER",
+          "path": "/load-test/pipeline"
+        },
+        "position": { "x": 0, "y": 0 }
+      },
+      {
+        "id": "lt-pipe-n1",
+        "nodeType": "NODE1",
+        "node1": {
+          "messageFormat": "JSON",
+          "fields": [
+            {
+              "key": "id",
+              "type": "INT",
+              "description": "요청 ID",
+              "nullable": false,
+              "mandatory": true,
+              "defaultValue": null
+            },
+            {
+              "key": "name",
+              "type": "STRING",
+              "description": "이름",
+              "nullable": false,
+              "mandatory": true,
+              "defaultValue": null
+            },
+            {
+              "key": "value",
+              "type": "INT",
+              "description": "값",
+              "nullable": false,
+              "mandatory": true,
+              "defaultValue": null
+            }
+          ],
+          "customDtos": []
+        },
+        "position": { "x": 300, "y": 0 }
+      },
+      {
+        "id": "lt-pipe-n2",
+        "nodeType": "NODE2",
+        "node2": {
+          "valueReplaceRules": [],
+          "typeConvertRules": [],
+          "customCodeRules": [
+            {
+              "key": "computed",
+              "code": "{$value} * 2 + 1",
+              "afterType": "INT"
+            },
+            {
+              "key": "label",
+              "code": "({$name} + '_processed').toUpperCase()",
+              "afterType": "STRING"
+            }
+          ]
+        },
+        "position": { "x": 600, "y": 0 }
+      },
+      {
+        "id": "lt-pipe-n5",
+        "nodeType": "NODE5",
+        "node5": {
+          "responseType": "HTTP_RESPONSE",
+          "successConfig": {
+            "httpStatus": 200,
+            "messageFormat": "JSON",
+            "passCurrentMap": true,
+            "fields": []
+          },
+          "defaultErrorConfig": {
+            "messageFormat": "JSON",
+            "fields": [
+              { "key": "error", "source": "EXCEPTION_MESSAGE", "value": "" }
+            ]
+          }
+        },
+        "position": { "x": 900, "y": 0 }
+      }
+    ],
+    "edges": [
+      {
+        "id": "lt-pipe-e0",
+        "sourceNodeId": "lt-pipe-n0",
+        "targetNodeId": "lt-pipe-n1",
+        "isDashed": false
+      },
+      {
+        "id": "lt-pipe-e1",
+        "sourceNodeId": "lt-pipe-n1",
+        "targetNodeId": "lt-pipe-n2",
+        "isDashed": false
+      },
+      {
+        "id": "lt-pipe-e2",
+        "sourceNodeId": "lt-pipe-n2",
+        "targetNodeId": "lt-pipe-n5",
+        "isDashed": false
+      }
+    ]
+  }
+}

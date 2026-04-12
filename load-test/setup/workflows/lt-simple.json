@@ -1,0 +1,54 @@
+{
+  "modifiedBy": "load-test-setup",
+  "password": "admin",
+  "unit": {
+    "id": "lt-simple",
+    "name": "[부하테스트] 최소 파이프라인 (NODE0→NODE5)",
+    "condition": {
+      "type": "ENDPOINT",
+      "endpointPattern": "/load-test/simple",
+      "rawExpression": "endpoint == /load-test/simple"
+    },
+    "nodes": [
+      {
+        "id": "lt-simple-n0",
+        "nodeType": "NODE0",
+        "node0": {
+          "protocol": "REST_SERVER",
+          "path": "/load-test/simple"
+        },
+        "position": { "x": 0, "y": 0 }
+      },
+      {
+        "id": "lt-simple-n5",
+        "nodeType": "NODE5",
+        "node5": {
+          "responseType": "HTTP_RESPONSE",
+          "successConfig": {
+            "httpStatus": 200,
+            "messageFormat": "JSON",
+            "passCurrentMap": false,
+            "fields": [
+              { "key": "status", "source": "LITERAL", "value": "ok" }
+            ]
+          },
+          "defaultErrorConfig": {
+            "messageFormat": "JSON",
+            "fields": [
+              { "key": "error", "source": "EXCEPTION_MESSAGE", "value": "" }
+            ]
+          }
+        },
+        "position": { "x": 300, "y": 0 }
+      }
+    ],
+    "edges": [
+      {
+        "id": "lt-simple-e0",
+        "sourceNodeId": "lt-simple-n0",
+        "targetNodeId": "lt-simple-n5",
+        "isDashed": false
+      }
+    ]
+  }
+}
