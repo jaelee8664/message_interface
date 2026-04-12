@@ -41,3 +41,7 @@ out/
 
 ### frontend build files ###
 frontend/node_modules/
+
+### logs ###
+message-logs/
+dead-letters/

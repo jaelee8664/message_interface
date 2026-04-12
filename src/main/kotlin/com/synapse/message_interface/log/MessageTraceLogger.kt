@@ -26,6 +26,8 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     companion object {
         const val LOG_DIR = "message-logs"
         const val MAX_MEMORY_ENTRIES = 10_000
+        /** Stat ring buffer — lightweight events only, much larger than the log buffer. */
+        const val MAX_STAT_ENTRIES = 500_000
         /** Drop logs silently if the async channel is full (high-load protection). */
         const val CHANNEL_CAPACITY = 100_000
         /** Periodic flush interval in milliseconds — limits maximum log loss on crash. */
@@ -40,6 +42,11 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     /** Ring buffer for recent-log search (all reads/writes guarded by [lock]). */
     private val recentLogs = ArrayDeque<TraceLog>()
     private val lock = Any()
+
+    /** Lightweight stat events — written directly in [log] (not via channel), guarded by [statLock]. */
+    private data class StatEvent(val timestamp: Instant, val unitId: String, val unitName: String, val success: Boolean)
+    private val statEvents = ArrayDeque<StatEvent>()
+    private val statLock = Any()
 
     /** Shared reference so the flush coroutine can reach the writer owned by the consumer coroutine. */
     private val fileWriterRef = AtomicReference<DailyFileWriter?>(null)
@@ -56,6 +63,11 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     /** Fire-and-forget: enqueue a log entry for async file write. Never blocks. */
     fun log(traceLog: TraceLog) {
         channel.trySend(traceLog) // drops silently when channel is full (non-blocking)
+        val event = StatEvent(traceLog.timestamp, traceLog.workflowUnitId, traceLog.workflowUnitName, traceLog.status == TraceStatus.SUCCESS)
+        synchronized(statLock) {
+            statEvents.addLast(event)
+            if (statEvents.size > MAX_STAT_ENTRIES) statEvents.removeFirst()
+        }
     }
 
     /**
@@ -64,29 +76,26 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
      */
     fun getRecentStats(windowMinutes: Int = 60): List<UnitStat> {
         val cutoff = Instant.now().minusSeconds(windowMinutes * 60L)
-        val snapshot = synchronized(lock) { recentLogs.toList() }
-        data class Acc(var success: Int = 0, var error: Int = 0, var lastActivity: Instant? = null)
+        val snapshot = synchronized(statLock) { statEvents.toList() }
+        data class Acc(var success: Long = 0, var error: Long = 0, var lastActivity: Instant? = null, var unitName: String = "")
         val map = LinkedHashMap<String, Acc>()
-        for (log in snapshot) {
-            if (log.timestamp.isBefore(cutoff)) continue
-            val key = log.workflowUnitId
-            val acc = map.getOrPut(key) { Acc() }
-            if (log.status == TraceStatus.SUCCESS) acc.success++ else acc.error++
-            if (acc.lastActivity == null || log.timestamp.isAfter(acc.lastActivity)) acc.lastActivity = log.timestamp
+        for (event in snapshot) {
+            if (event.timestamp.isBefore(cutoff)) continue
+            val acc = map.getOrPut(event.unitId) { Acc(unitName = event.unitName) }
+            if (event.success) acc.success++ else acc.error++
+            if (acc.lastActivity == null || event.timestamp.isAfter(acc.lastActivity)) acc.lastActivity = event.timestamp
+            acc.unitName = event.unitName
         }
-        // Re-scan once to get unitName (last seen name per unitId)
-        val names = mutableMapOf<String, String>()
-        for (log in snapshot) { names[log.workflowUnitId] = log.workflowUnitName }
         return map.map { (unitId, acc) ->
-            UnitStat(unitId, names[unitId] ?: unitId, acc.success, acc.error, acc.lastActivity)
+            UnitStat(unitId, acc.unitName.ifEmpty { unitId }, acc.success, acc.error, acc.lastActivity)
         }
     }
 
     data class UnitStat(
         val unitId: String,
         val unitName: String,
-        val successCount: Int,
-        val errorCount: Int,
+        val successCount: Long,
+        val errorCount: Long,
         val lastActivity: Instant?
     )
 

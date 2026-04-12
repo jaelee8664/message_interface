@@ -72,8 +72,8 @@ data class MonitorStatus(
     val windowMinutes: Int,
     val connections: ConnectionStatus,
     val pipelineStats: List<UnitStatDto>,
-    val totalSuccess: Int,
-    val totalError: Int,
+    val totalSuccess: Long,
+    val totalError: Long,
     val generatedAt: String
 )
 
@@ -90,7 +90,7 @@ data class ClientConnection(val key: String, val connected: Boolean)
 data class UnitStatDto(
     val unitId: String,
     val unitName: String,
-    val successCount: Int,
-    val errorCount: Int,
+    val successCount: Long,
+    val errorCount: Long,
     val lastActivity: String?
 )

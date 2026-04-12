@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.server.ResponseStatusException
 import org.springframework.web.server.ServerWebExchange
 
 @RestController
@@ -28,7 +29,9 @@ class RestServerHandler(private val dispatcher: WorkflowDispatcher) {
             ResponseEntity.status(status).body(result.body ?: ByteArray(0))
         } catch (e: Exception) {
             log.error("[REST Server] 처리 오류 path=$endpoint: ${e.message}", e)
-            ResponseEntity.internalServerError()
+            val errorStatus = if (e is ResponseStatusException) e.statusCode.value() else 500
+            val httpStatus = HttpStatus.resolve(errorStatus) ?: HttpStatus.INTERNAL_SERVER_ERROR
+            ResponseEntity.status(httpStatus)
                 .body(e.message?.toByteArray() ?: ByteArray(0))
         }
     }
