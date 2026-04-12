@@ -84,6 +84,13 @@ class ReferenceConfigService(
             "doneRetentionHours" to 24,
             "failedRetentionDays" to 7,
             "cleanupIntervalMinutes" to 60
+        ),
+        "llm" to mapOf(
+            "enabled" to false,
+            "ollamaBaseUrl" to "http://localhost:11434",
+            "codeModel" to "qwen2.5-coder:7b",
+            "chatModel" to "llama3.2:3b",
+            "timeoutSeconds" to 60
         )
     )
 }

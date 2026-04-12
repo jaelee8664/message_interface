@@ -2,6 +2,7 @@ import { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Node3Definition, DtoMapping, ListAddItem, ListAddItemType, FixedValueType, WorkflowUnit, FieldDefinition, Node1Definition, FieldType, ItemFieldMapping } from '../../types/workflow'
 import { InputField } from '../ui/FormField'
 import FieldStructurePreview from '../ui/FieldStructurePreview'
+import CodeAiAssist from '../llm/CodeAiAssist'
 
 export interface Node3PanelHandle {
   getUpdatedDefinition: () => Node3Definition | null
@@ -195,6 +196,7 @@ function AddItemRow({
   onRemove,
   listItemType,
   listItemDtoFields,
+  unitId,
 }: {
   item: ListAddItem
   availableKeys: string[]
@@ -203,6 +205,7 @@ function AddItemRow({
   onRemove: () => void
   listItemType?: FieldType | null
   listItemDtoFields?: FieldDefinition[] | null
+  unitId?: string
 }) {
   const isCustomList = listItemType === 'CUSTOM' || listItemType === 'MAP'
   const allowedTypes: ListAddItemType[] = isCustomList ? ['EXPR'] : ['FIXED', 'FIELD_REF']
@@ -312,7 +315,7 @@ function AddItemRow({
           </div>
         ) : (
           /* fallback: DTO 정보 없을 때 raw textarea (템플릿이 placeholder로) */
-          <div className="px-2 pb-2">
+          <div className="px-2 pb-2 space-y-1">
             <textarea
               value={item.expr ?? ''}
               onChange={e => onChange({ ...item, expr: e.target.value })}
@@ -320,18 +323,34 @@ function AddItemRow({
               rows={5}
               className="w-full px-2 py-1.5 text-xs font-mono rounded bg-slate-600 border border-slate-500 text-green-300 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y"
             />
+            <CodeAiAssist
+              nodeType="NODE3"
+              codeType="EXPR"
+              existingCode={item.expr ?? ''}
+              unitId={unitId}
+              onApply={(code) => onChange({ ...item, expr: code })}
+            />
           </div>
         )
       )}
 
-      <div className="flex items-center gap-1.5 px-2 pb-1.5">
-        <span className="text-xs text-slate-500 shrink-0">추가 조건</span>
-        <input
-          type="text"
-          value={item.addCondition ?? ''}
-          onChange={e => onChange({ ...item, addCondition: e.target.value || undefined })}
-          placeholder='미입력 시 항상 추가 · 예: {$items}.length == 1 && {$items[0].qty} == 3'
-          className="flex-1 min-w-0 px-2 py-0.5 text-xs font-mono rounded bg-slate-600 border border-slate-500 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+      <div className="px-2 pb-1.5 space-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500 shrink-0">추가 조건</span>
+          <input
+            type="text"
+            value={item.addCondition ?? ''}
+            onChange={e => onChange({ ...item, addCondition: e.target.value || undefined })}
+            placeholder='미입력 시 항상 추가 · 예: {$items}.length == 1 && {$items[0].qty} == 3'
+            className="flex-1 min-w-0 px-2 py-0.5 text-xs font-mono rounded bg-slate-600 border border-slate-500 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <CodeAiAssist
+          nodeType="NODE3"
+          codeType="ADD_CONDITION"
+          existingCode={item.addCondition ?? ''}
+          unitId={unitId}
+          onApply={(code) => onChange({ ...item, addCondition: code || undefined })}
         />
       </div>
     </div>
@@ -599,6 +618,13 @@ const Node3Panel = forwardRef<Node3PanelHandle, Props>(function Node3Panel({ def
                 rows={2}
                 className="w-full px-3 py-2 text-xs font-mono rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
               />
+              <CodeAiAssist
+                nodeType="NODE3"
+                codeType="FILTER_CODE"
+                existingCode={editingMapping.filterCode ?? ''}
+                unitId={unit.id}
+                onApply={(code) => setEditingMapping({ ...editingMapping, filterCode: code || undefined })}
+              />
               <p className="text-xs text-slate-500">
                 Map 원소 필드는 <code className="text-slate-400">el.</code> 프리픽스로 접근 · 원시값 원소는 <code className="text-slate-400">el</code> · 외부 DTO 필드는 그대로 접근
                 <br />
@@ -675,6 +701,7 @@ const Node3Panel = forwardRef<Node3PanelHandle, Props>(function Node3Panel({ def
                       onRemove={() => removeAddItem(idx)}
                       listItemType={editingListItemType}
                       listItemDtoFields={editingListDtoFields}
+                      unitId={unit.id}
                     />
                   ))}
                 </div>

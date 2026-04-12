@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
+import AiChatPanel from '../components/llm/AiChatPanel'
 import {
   ReactFlow,
   Background,
@@ -60,6 +61,7 @@ export default function WorkflowPage() {
 
   // Auth modal for canvas save
   const [showSaveModal, setShowSaveModal] = useState(false)
+  const [aiChatOpen, setAiChatOpen] = useState(false)
   const [saveBy, setSaveBy] = useState('')
   const [savePassword, setSavePassword] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -499,6 +501,19 @@ export default function WorkflowPage() {
 
       {/* History drawer (right slide-in) */}
       <HistoryDrawer />
+
+      {/* AI 도우미 플로팅 버튼 + 채팅 패널 */}
+      {aiChatOpen && <AiChatPanel onClose={() => setAiChatOpen(false)} />}
+      <button
+        onClick={() => setAiChatOpen((v) => !v)}
+        title="AI 도우미"
+        className={`fixed bottom-4 right-4 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg text-sm font-medium transition-colors ${
+          aiChatOpen ? 'bg-violet-700 text-white' : 'bg-slate-800 border border-slate-600 text-violet-400 hover:bg-slate-700'
+        }`}
+      >
+        <span>✦</span>
+        <span>AI 도우미</span>
+      </button>
 
       {/* Canvas save auth modal */}
       {showSaveModal && (

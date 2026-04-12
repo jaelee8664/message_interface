@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Node2Definition, ValueReplaceRule, TypeConvertRule, CustomCodeRule, FieldType } from '../../types/workflow'
 import { InputField, SelectField } from '../ui/FormField'
+import CodeAiAssist from '../llm/CodeAiAssist'
 
 interface Props {
   definition: Node2Definition | undefined
   onChange: (def: Node2Definition) => void
+  unitId?: string
 }
 
 const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
@@ -22,7 +24,7 @@ const DEFAULT_DEF: Node2Definition = {
 
 type Tab = 'replace' | 'typeConvert' | 'custom'
 
-export default function Node2Panel({ definition, onChange }: Props) {
+export default function Node2Panel({ definition, onChange, unitId }: Props) {
   const def = definition ?? DEFAULT_DEF
   const [tab, setTab] = useState<Tab>('replace')
 
@@ -65,6 +67,7 @@ export default function Node2Panel({ definition, onChange }: Props) {
         <CustomCodeTab
           rules={def.customCodeRules}
           onChange={(rules) => onChange({ ...def, customCodeRules: rules })}
+          unitId={unitId}
         />
       )}
     </div>
@@ -198,7 +201,7 @@ function TypeConvertTab({ rules, onChange }: { rules: TypeConvertRule[]; onChang
   )
 }
 
-function CustomCodeTab({ rules, onChange }: { rules: CustomCodeRule[]; onChange: (r: CustomCodeRule[]) => void }) {
+function CustomCodeTab({ rules, onChange, unitId }: { rules: CustomCodeRule[]; onChange: (r: CustomCodeRule[]) => void; unitId?: string }) {
   const EMPTY: CustomCodeRule = { key: '', code: '', afterType: undefined }
   const [form, setForm] = useState<CustomCodeRule>(EMPTY)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -256,6 +259,14 @@ function CustomCodeTab({ rules, onChange }: { rules: CustomCodeRule[]; onChange:
             placeholder={'예: {$header.time}.replace("-", ".")\n예2: ({$body.counts}.toDouble() + 0.0001) / 1000.0'}
             rows={3}
             className="w-full px-3 py-2 text-xs font-mono rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+          />
+          <CodeAiAssist
+            nodeType="NODE2"
+            codeType="CUSTOM_CODE"
+            existingCode={form.code}
+            unitId={unitId}
+            fieldKey={form.key || undefined}
+            onApply={(code) => setForm((f) => ({ ...f, code }))}
           />
         </div>
         <SelectField
