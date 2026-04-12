@@ -3,6 +3,7 @@ import { useWorkflowStore } from '../store/workflowStore'
 import { ProtocolType, WorkflowUnit } from '../types/workflow'
 import { useResizablePanel } from '../hooks/useResizablePanel'
 import CreateUnitModal from './CreateUnitModal'
+import ManualModal from './ManualModal'
 
 const PROTOCOL_LABEL: Record<ProtocolType, string> = {
   WEBSOCKET_SERVER: 'WS Server',
@@ -50,6 +51,24 @@ export default function WorkflowUnitList() {
   const [deleteBy, setDeleteBy] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [manualMode, setManualMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showManualModal, setShowManualModal] = useState(false)
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const exitManualMode = () => {
+    setManualMode(false)
+    setSelectedIds(new Set())
+  }
+
   const filtered = (units ?? []).filter((u) =>
     u.name.toLowerCase().includes(search.toLowerCase())
   )
@@ -83,7 +102,21 @@ export default function WorkflowUnitList() {
         <div className="p-3 border-b border-slate-700">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-white">워크플로우 단위</span>
+            {!manualMode && (
+              <button
+                onClick={() => setManualMode(true)}
+                className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+                title="프로토콜 정의서 생성"
+              >
+                프로토콜 정의서 생성
+              </button>
+            )}
           </div>
+          {manualMode && (
+            <div className="mb-2 text-xs text-amber-400 font-medium">
+              프로토콜 정의서에 포함할 단위를 선택하세요
+            </div>
+          )}
           <input
             type="text"
             placeholder="검색..."
@@ -99,15 +132,39 @@ export default function WorkflowUnitList() {
             <div
               key={unit.id}
               className={`group flex items-stretch border-b border-slate-800 ${
-                selectedUnitId === unit.id ? 'bg-blue-900/50 border-l-2 border-l-blue-500' : 'hover:bg-slate-800'
+                manualMode
+                  ? selectedIds.has(unit.id)
+                    ? 'bg-amber-900/30 border-l-2 border-l-amber-500'
+                    : 'hover:bg-slate-800'
+                  : selectedUnitId === unit.id
+                    ? 'bg-blue-900/50 border-l-2 border-l-blue-500'
+                    : 'hover:bg-slate-800'
               }`}
             >
+              {manualMode && (
+                <button
+                  onClick={() => toggleSelect(unit.id)}
+                  className="flex items-center pl-3 pr-1 text-amber-400"
+                >
+                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center text-[10px] font-bold ${
+                    selectedIds.has(unit.id)
+                      ? 'bg-amber-500 border-amber-500 text-white'
+                      : 'border-slate-500'
+                  }`}>
+                    {selectedIds.has(unit.id) && '✓'}
+                  </div>
+                </button>
+              )}
               <button
-                onClick={() => selectUnit(unit.id)}
+                onClick={() => manualMode ? toggleSelect(unit.id) : selectUnit(unit.id)}
                 className="flex-1 text-left px-3 py-2 text-sm min-w-0"
               >
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <div className={`font-medium truncate flex-1 ${selectedUnitId === unit.id ? 'text-blue-300' : 'text-slate-300'}`}>
+                  <div className={`font-medium truncate flex-1 ${
+                    manualMode
+                      ? selectedIds.has(unit.id) ? 'text-amber-300' : 'text-slate-300'
+                      : selectedUnitId === unit.id ? 'text-blue-300' : 'text-slate-300'
+                  }`}>
                     {unit.name}
                   </div>
                   {(() => {
@@ -123,13 +180,15 @@ export default function WorkflowUnitList() {
                   {unit.condition.rawExpression ?? unit.condition.type}
                 </div>
               </button>
-              <button
-                onClick={() => { setDeletingId(unit.id); setDeleteError(null) }}
-                className="px-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-opacity"
-                title="삭제"
-              >
-                ✕
-              </button>
+              {!manualMode && (
+                <button
+                  onClick={() => { setDeletingId(unit.id); setDeleteError(null) }}
+                  className="px-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-opacity"
+                  title="삭제"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           ))}
           {!loading && filtered.length === 0 && (
@@ -140,17 +199,47 @@ export default function WorkflowUnitList() {
         </div>
 
         <div className="p-3 border-t border-slate-700">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="w-full py-2 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white font-medium"
-          >
-            + 새 워크플로우 단위
-          </button>
+          {manualMode ? (
+            <div className="flex gap-2">
+              <button
+                onClick={exitManualMode}
+                className="flex-1 py-2 text-sm rounded bg-slate-700 hover:bg-slate-600 text-white"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => { if (selectedIds.size > 0) setShowManualModal(true) }}
+                disabled={selectedIds.size === 0}
+                className={`flex-1 py-2 text-sm rounded font-medium transition-colors ${
+                  selectedIds.size > 0
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                    : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                }`}
+              >
+                프로토콜 정의서 생성 ({selectedIds.size})
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-full py-2 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white font-medium"
+            >
+              + 새 워크플로우 단위
+            </button>
+          )}
         </div>
       </div>
 
       {/* Create unit modal */}
       {showCreateModal && <CreateUnitModal onClose={() => setShowCreateModal(false)} />}
+
+      {/* Manual modal */}
+      {showManualModal && (
+        <ManualModal
+          unitIds={Array.from(selectedIds)}
+          onClose={() => { setShowManualModal(false); exitManualMode() }}
+        />
+      )}
 
       {/* Delete confirm modal */}
       {deletingId && (
