@@ -41,7 +41,7 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
 
     private fun buildSuccessBody(data: Map<String, Any?>, config: Node5SuccessConfig): Pair<ByteArray?, Map<String, Any?>> {
         if (config.passCurrentMap) {
-            return Pair(parserRegistry.getParser(config.messageFormat).serialize(data), data)
+            return Pair(parserRegistry.getParser(config.messageFormat).serialize(data, config.xmlRootElement), data)
         }
         if (config.fields.isEmpty()) return Pair(ByteArray(0), emptyMap())
         val resultMap = mutableMapOf<String, Any?>()
@@ -52,7 +52,7 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> null  // not applicable for success
             }
         }
-        return Pair(parserRegistry.getParser(config.messageFormat).serialize(resultMap), resultMap)
+        return Pair(parserRegistry.getParser(config.messageFormat).serialize(resultMap, config.xmlRootElement), resultMap)
     }
 
     private fun buildErrorBody(

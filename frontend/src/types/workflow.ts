@@ -99,6 +99,8 @@ export interface Node4Definition {
   reconnectDelaySeconds?: number
   // MONGO_QUEUE_PUBLISHER 전용
   mongoQueueName?: string
+  // XML 직렬화 전용: 출력 메시지의 루트 엘리먼트 이름
+  xmlRootElement?: string
 }
 
 // ── NODE5 – Response node ─────────────────────────────────────────────────────
@@ -125,6 +127,8 @@ export interface Node5SuccessConfig {
   fields: NodeErrorField[]
   /** true이면 fields 설정을 무시하고 파이프라인이 만들어 온 currentMap 전체를 직렬화하여 반환한다. */
   passCurrentMap?: boolean
+  // XML 직렬화 전용: 응답 메시지의 루트 엘리먼트 이름
+  xmlRootElement?: string
 }
 
 // ── Per-node error response ───────────────────────────────────────────────────

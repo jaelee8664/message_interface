@@ -37,6 +37,7 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
 
   const update = (partial: Partial<Node4Definition>) => onChange({ ...def, ...partial })
 
+  const isXml = def.messageFormat === 'XML'
   const needsTarget = ['REST_CLIENT', 'WEBSOCKET_CLIENT', 'TCP_CLIENT'].includes(def.protocol)
   const isKafka = def.protocol === 'KAFKA_PUBLISHER'
   const isMongoQueue = def.protocol === 'MONGO_QUEUE_PUBLISHER'
@@ -61,6 +62,16 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
         onChange={(e) => update({ messageFormat: e.target.value as MessageFormat })}
         options={FORMAT_OPTIONS}
       />
+
+      {isXml && (
+        <InputField
+          label="XML 루트 엘리먼트"
+          value={def.xmlRootElement ?? ''}
+          onChange={(e) => update({ xmlRootElement: e.target.value || undefined })}
+          placeholder="예: Message"
+          hint="XML 출력 시 최상위 태그 이름. 비우면 루트 태그 없이 직렬화됩니다."
+        />
+      )}
 
       <SelectField
         label="송신 프로토콜"

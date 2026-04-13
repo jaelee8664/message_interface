@@ -46,7 +46,7 @@ class Node4Executor(
      * Applies timeout and retry as configured in [definition].
      */
     suspend fun execute(data: Map<String, Any?>, definition: Node4Definition, context: MessageContext): ByteArray? {
-        val serialized = parserRegistry.getParser(definition.messageFormat).serialize(data)
+        val serialized = parserRegistry.getParser(definition.messageFormat).serialize(data, definition.xmlRootElement)
         // MONGO_QUEUE_PUBLISHER는 traceId를 dedup 키로 사용하여 재시도 중복 발행 방지
         val mongoMessageId = context.traceId
 
@@ -263,4 +263,5 @@ class Node4Executor(
         val pa = path ?: "/"
         return "http://$h$p$pa"
     }
+
 }

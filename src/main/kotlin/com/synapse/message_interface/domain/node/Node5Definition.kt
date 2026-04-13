@@ -34,6 +34,8 @@ data class Node5SuccessConfig(
      * true이면 [fields] 설정을 무시하고 파이프라인이 만들어 온 currentMap 전체를 직렬화하여 반환한다.
      */
     val passCurrentMap: Boolean = false,
+    // XML 직렬화 전용: 응답 메시지의 루트 엘리먼트 이름 (null이면 루트 래핑 없음)
+    val xmlRootElement: String? = null,
 )
 
 /**

@@ -32,6 +32,7 @@ interface Props {
   node0Info?: Node0Info
   onResult: (result: UnitSimulationResult | null) => void
   onClose: () => void
+  onHeightChange?: (height: number) => void
 }
 
 const MIN_HEIGHT = 150
@@ -47,7 +48,7 @@ function supportsTargetIpOverride(n: Node4NodeInfo): boolean {
   return (n.protocol === 'WEBSOCKET_SERVER' || n.protocol === 'TCP_SERVER') && n.replyToSelf === false
 }
 
-export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult, onClose }: Props) {
+export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult, onClose, onHeightChange }: Props) {
   const [message, setMessage] = useState('{}')
   const [format, setFormat] = useState('JSON')
   const [node4Overrides, setNode4Overrides] = useState<Record<string, { host: string; port: string; ip: string }>>({})
@@ -95,6 +96,8 @@ export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult,
 
   // Vertical resize (top edge)
   const [height, setHeight] = useState(DEFAULT_HEIGHT)
+
+  useEffect(() => { onHeightChange?.(DEFAULT_HEIGHT) }, [])  // notify initial height
   const vDraggingRef = useRef(false)
   const vStartYRef = useRef(0)
   const vStartHeightRef = useRef(0)
@@ -127,7 +130,9 @@ export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult,
     const onMove = (e: MouseEvent) => {
       if (vDraggingRef.current) {
         const delta = vStartYRef.current - e.clientY
-        setHeight(h => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, vStartHeightRef.current + delta)))
+        const newH = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, vStartHeightRef.current + delta))
+        setHeight(newH)
+        onHeightChange?.(newH)
       }
       if (hDraggingRef.current) {
         const delta = e.clientX - hStartXRef.current

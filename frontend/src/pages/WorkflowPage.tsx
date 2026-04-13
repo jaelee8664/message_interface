@@ -71,6 +71,7 @@ export default function WorkflowPage() {
   const [simMode, setSimMode] = useState(false)
   const [simResult, setSimResult] = useState<UnitSimulationResult | null>(null)
   const [simActiveNodeId, setSimActiveNodeId] = useState<string | null>(null)
+  const [drawerHeight, setDrawerHeight] = useState(210)
 
   // Build trace map from sim result
   const simTraceMap = useMemo(() => {
@@ -451,7 +452,7 @@ export default function WorkflowPage() {
               deleteKeyCode={['Backspace', 'Delete']}
             >
               <Background variant={BackgroundVariant.Dots} color="#334155" gap={20} />
-              <Controls className="bg-slate-800 border-slate-600" />
+              <Controls className="bg-slate-800 border-slate-600" showInteractiveButton={false} />
               <MiniMap className="bg-slate-800" nodeColor="#475569" />
             </ReactFlow>
           </SimContext.Provider>
@@ -478,6 +479,7 @@ export default function WorkflowPage() {
             node0Info={node0Info}
             onResult={handleSimResult}
             onClose={closeSimMode}
+            onHeightChange={setDrawerHeight}
           />
         )}
       </div>
@@ -507,7 +509,8 @@ export default function WorkflowPage() {
       <button
         onClick={() => setAiChatOpen((v) => !v)}
         title="AI 도우미"
-        className={`fixed bottom-4 right-4 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg text-sm font-medium transition-colors ${
+        style={{ bottom: simMode && selectedUnitId ? drawerHeight + 12 : 16 }}
+        className={`fixed right-4 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg text-sm font-medium transition-[bottom,colors] ${
           aiChatOpen ? 'bg-violet-700 text-white' : 'bg-slate-800 border border-slate-600 text-violet-400 hover:bg-slate-700'
         }`}
       >

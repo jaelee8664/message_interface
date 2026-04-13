@@ -18,4 +18,6 @@ data class Node4Definition(
     val reconnectDelaySeconds: Int = 5,
     // MONGO_QUEUE_PUBLISHER 전용
     val mongoQueueName: String? = null,   // 발행할 큐 이름
+    // XML 직렬화 전용: 출력 메시지의 루트 엘리먼트 이름 (null이면 루트 래핑 없음)
+    val xmlRootElement: String? = null,
 )

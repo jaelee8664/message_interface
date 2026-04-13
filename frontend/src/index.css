@@ -23,3 +23,41 @@ body {
 .react-flow__edge-path {
   stroke-width: 2;
 }
+
+/* React Flow Controls 다크 테마 */
+.react-flow__controls {
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.react-flow__controls-button {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  color: #94a3b8;
+  fill: #94a3b8;
+  width: 28px;
+  height: 28px;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.react-flow__controls-button:hover {
+  background: #334155;
+  color: #e2e8f0;
+  fill: #e2e8f0;
+}
+
+.react-flow__controls-button svg {
+  fill: inherit;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+.react-flow__controls-interactive {
+  display: none;
+}

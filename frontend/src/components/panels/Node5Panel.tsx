@@ -183,6 +183,21 @@ function SuccessConfigEditor({
         </select>
       </div>
 
+      {/* XML Root Element — only shown when XML format selected */}
+      {config.messageFormat === 'XML' && (
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-slate-300">XML 루트 엘리먼트</label>
+          <input
+            type="text"
+            className="w-full px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            value={config.xmlRootElement ?? ''}
+            onChange={(e) => update({ xmlRootElement: e.target.value || undefined })}
+            placeholder="예: Message"
+          />
+          <p className="text-xs text-slate-500">XML 응답의 최상위 태그 이름. 비우면 루트 태그 없이 직렬화됩니다.</p>
+        </div>
+      )}
+
       {/* passCurrentMap toggle */}
       <div className="flex items-center gap-2 py-1">
         <input
