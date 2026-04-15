@@ -9,13 +9,15 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'REST_SERVER',       label: 'REST 서버' },
   { value: 'WEBSOCKET_SERVER',  label: 'WebSocket 서버' },
   { value: 'WEBSOCKET_CLIENT',  label: 'WebSocket 클라이언트' },
+  { value: 'GRPC_SERVER',       label: 'gRPC 서버 (Bidirectional Streaming)' },
+  { value: 'GRPC_CLIENT',       label: 'gRPC 클라이언트 (Bidirectional Streaming)' },
   { value: 'TCP_SERVER',        label: 'TCP 서버' },
   { value: 'TCP_CLIENT',        label: 'TCP 클라이언트' },
   { value: 'KAFKA_CONSUMER',    label: 'Kafka Consumer' },
   { value: 'MONGO_QUEUE_CONSUMER', label: 'MongoDB 큐 소비 (폴링 응답)' },
 ]
 
-const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER']
+const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER', 'GRPC_SERVER', 'GRPC_CLIENT']
 
 const DEFAULT_CONDITION_FOR = (protocol: ProtocolType): WorkflowCondition =>
   NO_ENDPOINT_PROTOCOLS.includes(protocol)

@@ -46,6 +46,10 @@ dependencies {
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	implementation("org.apache.poi:poi-ooxml:5.3.0")
+	// gRPC (netty-shaded bundles its own Netty to avoid conflicts with reactor-netty)
+	implementation("io.grpc:grpc-netty-shaded:1.65.0")
+	implementation("io.grpc:grpc-protobuf:1.65.0")
+	implementation("io.grpc:grpc-stub:1.65.0")
 }
 
 kotlin {

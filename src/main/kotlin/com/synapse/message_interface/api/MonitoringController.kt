@@ -2,6 +2,9 @@ package com.synapse.message_interface.api
 
 import com.synapse.message_interface.api.dto.ApiResponse
 import com.synapse.message_interface.log.MessageTraceLogger
+import com.synapse.message_interface.reception.GrpcClientRegistry
+import com.synapse.message_interface.reception.GrpcServerManager
+import com.synapse.message_interface.reception.GrpcSessionRegistry
 import com.synapse.message_interface.reception.TcpClientConnectionPool
 import com.synapse.message_interface.reception.TcpServerSessionRegistry
 import com.synapse.message_interface.reception.WebSocketClientRegistry
@@ -17,7 +20,10 @@ class MonitoringController(
     private val webSocketSessionRegistry: WebSocketSessionRegistry,
     private val webSocketClientRegistry: WebSocketClientRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
-    private val traceLogger: MessageTraceLogger
+    private val traceLogger: MessageTraceLogger,
+    private val grpcSessionRegistry: GrpcSessionRegistry,
+    private val grpcClientRegistry: GrpcClientRegistry,
+    private val grpcServerManager: GrpcServerManager
 ) {
 
     @GetMapping("/status")
@@ -39,6 +45,17 @@ class MonitoringController(
             ClientConnection(key, connected)
         }
 
+        val grpcUnitInfo = grpcServerManager.getUnitInfo()
+        val grpcServerSessions = grpcSessionRegistry.getAllUnits().map { (unitId, count) ->
+            GrpcServerSession(
+                key = grpcUnitInfo[unitId] ?: unitId,
+                streamCount = count
+            )
+        }
+        val grpcClientConnections = grpcClientRegistry.getStatus().map { (key, connected) ->
+            ClientConnection(key, connected)
+        }
+
         val pipelineStats = traceLogger.getRecentStats(windowMinutes)
             .map { s ->
                 UnitStatDto(
@@ -57,7 +74,9 @@ class MonitoringController(
                 tcpServer = tcpServerSessions,
                 webSocketServer = wsServerSessions,
                 webSocketClient = wsClientConnections,
-                tcpClient = tcpClientConnections
+                tcpClient = tcpClientConnections,
+                grpcServer = grpcServerSessions,
+                grpcClient = grpcClientConnections
             ),
             pipelineStats = pipelineStats,
             totalSuccess = pipelineStats.sumOf { it.successCount },
@@ -81,12 +100,17 @@ data class ConnectionStatus(
     val tcpServer: List<ServerSession>,
     val webSocketServer: List<ServerSession>,
     val webSocketClient: List<ClientConnection>,
-    val tcpClient: List<ClientConnection>
+    val tcpClient: List<ClientConnection>,
+    val grpcServer: List<GrpcServerSession>,
+    val grpcClient: List<ClientConnection>
 )
 
 /** TCP/WebSocket 서버에 접속한 클라이언트 1개 IP 기준 집계 */
 data class ServerSession(val clientIp: String, val sessionCount: Int, val allActive: Boolean)
 data class ClientConnection(val key: String, val connected: Boolean)
+
+/** gRPC 서버 서비스 기준 활성 스트림 집계 */
+data class GrpcServerSession(val key: String, val streamCount: Int)
 data class UnitStatDto(
     val unitId: String,
     val unitName: String,

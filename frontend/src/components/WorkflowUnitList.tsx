@@ -16,6 +16,8 @@ const PROTOCOL_LABEL: Record<ProtocolType, string> = {
   REST_CLIENT: 'REST Client',
   MONGO_QUEUE_CONSUMER: 'MQ Consumer',
   MONGO_QUEUE_PUBLISHER: 'MQ Publisher',
+  GRPC_SERVER: 'gRPC Server',
+  GRPC_CLIENT: 'gRPC Client',
 }
 
 const PROTOCOL_COLOR: Record<ProtocolType, string> = {
@@ -29,6 +31,8 @@ const PROTOCOL_COLOR: Record<ProtocolType, string> = {
   REST_CLIENT: 'bg-violet-800 text-violet-200',
   MONGO_QUEUE_CONSUMER: 'bg-teal-700 text-teal-100',
   MONGO_QUEUE_PUBLISHER: 'bg-teal-800 text-teal-200',
+  GRPC_SERVER: 'bg-cyan-700 text-cyan-100',
+  GRPC_CLIENT: 'bg-cyan-800 text-cyan-200',
 }
 
 function getNode0Protocol(unit: WorkflowUnit): ProtocolType | null {

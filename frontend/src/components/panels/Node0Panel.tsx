@@ -18,10 +18,13 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 'KAFKA_CONSUMER', label: 'Kafka Consumer' },
   { value: 'REST_SERVER', label: 'REST 서버' },
   { value: 'MONGO_QUEUE_CONSUMER', label: 'MongoDB 큐 소비 (폴링 응답)' },
+  { value: 'GRPC_SERVER', label: 'gRPC 서버 (Bidirectional Streaming)' },
+  { value: 'GRPC_CLIENT', label: 'gRPC 클라이언트 (Bidirectional Streaming)' },
 ]
 
-const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT']
-const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'WEBSOCKET_SERVER']
+const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT', 'GRPC_CLIENT']
+const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'WEBSOCKET_SERVER', 'GRPC_CLIENT', 'GRPC_SERVER']
+const GRPC_PROTOCOLS: ProtocolType[] = ['GRPC_SERVER', 'GRPC_CLIENT']
 
 const DEFAULT: Node0Definition = {
   protocol: 'REST_SERVER',
@@ -41,6 +44,8 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
   const isRestServer = def.protocol === 'REST_SERVER'
   const isTcpServer = def.protocol === 'TCP_SERVER'
   const isMongoQueueConsumer = def.protocol === 'MONGO_QUEUE_CONSUMER'
+  const isGrpc = GRPC_PROTOCOLS.includes(def.protocol)
+  const isGrpcClient = def.protocol === 'GRPC_CLIENT'
   const restPathReserved = isRestServer && (def.path?.startsWith('/synapse/') ?? false)
 
   const update = (partial: Partial<Node0Definition>) => onChange({ ...def, ...partial })
@@ -54,7 +59,53 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
         options={PROTOCOL_OPTIONS}
       />
 
-      {isClient && (
+      {/* gRPC 공통: 서비스명 / 메서드명 */}
+      {isGrpc && (
+        <>
+          <div className="p-2.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-300 leading-relaxed">
+            {isGrpcClient
+              ? 'gRPC 클라이언트는 Spring HTTP 포트와 별도로 동작합니다.'
+              : <>gRPC 서버 포트는 <code className="bg-cyan-900/50 px-1 rounded">application.yaml</code>의 <code className="bg-cyan-900/50 px-1 rounded">grpc.server.port</code>로 설정합니다. (기본: 9090)</>
+            }
+          </div>
+          <InputField
+            label="서비스 이름"
+            value={def.grpcServiceName ?? ''}
+            onChange={(e) => update({ grpcServiceName: e.target.value || undefined })}
+            placeholder="기본: MessageInterfaceService"
+            hint="외부 클라이언트의 .proto 파일에 정의된 서비스 이름과 일치해야 합니다."
+          />
+          <InputField
+            label="메서드 이름"
+            value={def.grpcMethodName ?? ''}
+            onChange={(e) => update({ grpcMethodName: e.target.value || undefined })}
+            placeholder="기본: BiStream"
+          />
+          {isGrpcClient && (
+            <InputField
+              label="대상 포트 (원격 gRPC 서버)"
+              type="number"
+              value={def.port ?? ''}
+              onChange={(e) => update({ port: Number(e.target.value) })}
+              placeholder="예: 9090"
+              hint="연결할 원격 gRPC 서버 포트"
+            />
+          )}
+        </>
+      )}
+
+      {/* gRPC 클라이언트: 대상 호스트 */}
+      {isGrpcClient && (
+        <InputField
+          label="대상 호스트"
+          value={def.host ?? ''}
+          onChange={(e) => update({ host: e.target.value })}
+          placeholder="예: localhost"
+        />
+      )}
+
+      {/* WebSocket / TCP 클라이언트 */}
+      {isClient && !isGrpc && (
         <>
           <InputField
             label="호스트"
@@ -184,6 +235,10 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
             hint={
               def.protocol === 'WEBSOCKET_SERVER'
                 ? "주기적으로 Ping을 전송해 연결된 클라이언트의 좀비 연결을 감지하고 세션을 정리합니다."
+                : def.protocol === 'GRPC_SERVER'
+                ? "HTTP/2 keepAlive PING을 활성화합니다. 클라이언트 무응답 시 스트림을 종료합니다. (동일 포트를 공유하는 모든 gRPC 서비스에 일괄 적용됩니다)"
+                : def.protocol === 'GRPC_CLIENT'
+                ? "HTTP/2 keepAlive PING을 활성화합니다. 서버 무응답 시 연결을 끊고 재연결합니다."
                 : "주기적으로 Ping을 전송해 서버 연결 상태를 확인하고 끊어진 경우 재연결합니다."
             }
           />
@@ -203,6 +258,10 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
                 hint={
                   def.protocol === 'WEBSOCKET_SERVER'
                     ? "이 시간 내에 Pong이 없으면 좀비 연결로 판단하고 세션을 종료합니다."
+                    : def.protocol === 'GRPC_SERVER'
+                    ? "이 시간 내에 PING ACK가 없으면 클라이언트 무응답으로 판단하고 스트림을 종료합니다."
+                    : def.protocol === 'GRPC_CLIENT'
+                    ? "이 시간 내에 PING ACK가 없으면 서버 무응답으로 판단하고 연결을 종료합니다."
                     : "이 시간 내에 Pong이 없으면 좀비 연결로 판단하고 재연결합니다."
                 }
               />
@@ -213,6 +272,10 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
               <div className="text-amber-400/80 leading-relaxed">
                 {def.protocol === 'WEBSOCKET_SERVER'
                   ? 'Ping/Pong이 비활성화된 상태입니다. 클라이언트가 비정상 종료되어도 감지할 수 없어 좀비 세션이 남을 수 있습니다.'
+                  : def.protocol === 'GRPC_SERVER'
+                  ? 'HTTP/2 keepAlive가 비활성화된 상태입니다. 클라이언트 무응답 감지가 불가능하므로 좀비 스트림이 남을 수 있습니다.'
+                  : def.protocol === 'GRPC_CLIENT'
+                  ? 'HTTP/2 keepAlive가 비활성화된 상태입니다. 서버 무응답 감지가 불가능하므로 재연결이 지연될 수 있습니다.'
                   : 'Ping/Pong이 비활성화된 상태입니다. 연결 끊김 감지가 불가능하므로 자동 재연결이 지연될 수 있습니다.'}
               </div>
             </div>
@@ -220,7 +283,7 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
         </>
       )}
 
-      {isClient && (
+      {(isClient || isGrpcClient) && (
         <>
           <CheckboxField
             label="자동 재연결"

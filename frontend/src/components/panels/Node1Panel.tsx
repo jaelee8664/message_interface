@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Node1Definition, FieldDefinition, FieldType, MessageFormat } from '../../types/workflow'
+import { Node1Definition, FieldDefinition, FieldType, MessageFormat, ProtoFieldDef, ProtoMessageDef } from '../../types/workflow'
 import { SelectField, CheckboxField, InputField } from '../ui/FormField'
 import FieldStructurePreview from '../ui/FieldStructurePreview'
+import ProtoSchemaEditor from './ProtoSchemaEditor'
 
 // ── Sample parser helpers ──────────────────────────────────────────────────────
 
@@ -122,7 +123,7 @@ function parseSample(text: string, format: MessageFormat): ParseResult {
 
 // ── SampleParserSection ────────────────────────────────────────────────────────
 
-const SAMPLE_PLACEHOLDERS: Record<MessageFormat, string> = {
+const SAMPLE_PLACEHOLDERS: Record<'JSON' | 'XML', string> = {
   JSON: `{\n  "field1": "value",\n  "count": 1,\n  "active": true,\n  "nested": { "a": "b" }\n}`,
   XML: `<root>\n  <field1>value</field1>\n  <count>1</count>\n  <active>true</active>\n</root>`,
 }
@@ -168,7 +169,7 @@ function SampleParserSection({ messageFormat, hasExistingFields, onApply }: Samp
           <textarea
             value={sampleText}
             onChange={(e) => { setSampleText(e.target.value); setParseError(null) }}
-            placeholder={SAMPLE_PLACEHOLDERS[messageFormat]}
+            placeholder={SAMPLE_PLACEHOLDERS[messageFormat as 'JSON' | 'XML'] ?? ''}
             className="w-full h-36 px-2 py-1.5 text-xs font-mono rounded bg-slate-900 border border-slate-600 text-slate-300 resize-y focus:outline-none focus:border-blue-500"
           />
           {parseError && <div className="text-xs text-red-400">{parseError}</div>}
@@ -204,6 +205,8 @@ function SampleParserSection({ messageFormat, hasExistingFields, onApply }: Samp
 interface Props {
   definition: Node1Definition | undefined
   onChange: (def: Node1Definition) => void
+  /** NODE0 프로토콜이 GRPC_SERVER / GRPC_CLIENT 이면 true → Protobuf 모드 고정 */
+  isGrpc?: boolean
 }
 
 const FORMAT_OPTIONS: { value: MessageFormat; label: string }[] = [
@@ -615,12 +618,49 @@ function CustomDtoSection({ customDtos, onChange }: CustomDtoSectionProps) {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-export default function Node1Panel({ definition, onChange }: Props) {
-  const def = definition ?? DEFAULT_DEF
+export default function Node1Panel({ definition, onChange, isGrpc = false }: Props) {
+  const rawDef = definition ?? DEFAULT_DEF
+  // gRPC 모드: messageFormat 을 PROTOBUF 로 자동 설정
+  const def: Node1Definition = isGrpc
+    ? { ...rawDef, messageFormat: 'PROTOBUF' }
+    : rawDef
+
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editingField, setEditingField] = useState<FieldDefinition>(EMPTY_FIELD)
 
   const customDtoNames = def.customDtos.map((d) => d.name)
+
+  // gRPC 모드: proto 스키마 변경 → fields + customDtos 자동 파생 후 저장
+  const handleProtoSchemaChange = (protoSchema: ProtoFieldDef[], protoMessages: ProtoMessageDef[]) => {
+    // 중첩 MESSAGE 타입 → customDtos 파생
+    const derivedDtos = protoMessages.map(pm => ({
+      name: pm.name,
+      fields: pm.fields.map(pf => ({
+        key:          pf.name,
+        type:         protoTypeToFieldType(pf),
+        listItemType: pf.label === 'REPEATED' ? protoTypeToScalarFieldType(pf.type) : undefined,
+        customTypeName: pf.messageTypeName,
+        nullable:     false,
+        mandatory:    false,
+        description:  pf.name,
+      } as FieldDefinition)),
+    }))
+
+    // 루트 필드 파생 (MESSAGE 타입 필드 → CUSTOM 타입)
+    const derivedFields: FieldDefinition[] = protoSchema.map(pf => ({
+      key:          pf.name,
+      type:         pf.messageTypeName ? 'CUSTOM' : protoTypeToFieldType(pf),
+      listItemType: pf.label === 'REPEATED' && !pf.messageTypeName
+        ? protoTypeToScalarFieldType(pf.type)
+        : pf.label === 'REPEATED' && pf.messageTypeName ? 'CUSTOM' : undefined,
+      customTypeName: pf.messageTypeName,
+      nullable:     false,
+      mandatory:    false,
+      description:  pf.name,
+    }))
+
+    onChange({ ...def, messageFormat: 'PROTOBUF', protoSchema, protoMessages, fields: derivedFields, customDtos: derivedDtos })
+  }
 
   const handleSampleApply = (result: ParseResult, mode: 'replace' | 'append') => {
     if (mode === 'replace') {
@@ -655,6 +695,24 @@ export default function Node1Panel({ definition, onChange }: Props) {
     onChange({ ...def, fields: def.fields.filter((_, idx) => idx !== i) })
   }
 
+  // ── gRPC (Protobuf) 모드 ──────────────────────────────────────────────────
+  if (isGrpc) {
+    return (
+      <div className="space-y-5">
+        <div className="p-2.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-300 space-y-0.5">
+          <div className="font-semibold">Protobuf 모드</div>
+          <div className="text-cyan-400/80">gRPC 프로토콜이 선택되어 메시지 형식이 Protobuf로 고정됩니다.</div>
+        </div>
+        <ProtoSchemaEditor
+          fields={def.protoSchema ?? []}
+          messages={def.protoMessages ?? []}
+          onChange={handleProtoSchemaChange}
+        />
+      </div>
+    )
+  }
+
+  // ── JSON / XML 모드 (기존) ────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* Message format */}
@@ -723,4 +781,25 @@ export default function Node1Panel({ definition, onChange }: Props) {
       />
     </div>
   )
+}
+
+// ── proto 타입 → FieldType 변환 헬퍼 (Node1 fields 자동 파생용) ───────────────
+
+import { ProtoFieldType as PFT } from '../../types/workflow'
+
+function protoTypeToFieldType(pf: ProtoFieldDef): FieldType {
+  if (pf.label === 'REPEATED') return 'LIST'
+  return protoTypeToScalarFieldType(pf.type)
+}
+
+function protoTypeToScalarFieldType(t: PFT): FieldType {
+  switch (t) {
+    case 'BOOL':                          return 'BOOLEAN'
+    case 'INT32': case 'INT64':
+    case 'UINT32': case 'UINT64':
+    case 'SINT32': case 'SINT64':         return 'INT'
+    case 'FLOAT': case 'DOUBLE':          return 'DOUBLE'
+    case 'BYTES':                         return 'STRING'   // bytes → STRING 폴백
+    default:                              return 'STRING'
+  }
 }

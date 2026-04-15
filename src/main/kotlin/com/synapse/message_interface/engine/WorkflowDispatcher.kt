@@ -18,16 +18,23 @@ class WorkflowDispatcher(
 
     /**
      * Given an incoming message context, find the matching workflow unit and execute the pipeline.
+     *
+     * gRPC / 기타 pre-parsed 메시지: context.parsedMessage 가 이미 설정되어 있으면
+     * parser 호출을 생략하고 해당 Map 을 조건 평가와 NODE1 에 직접 사용한다.
      */
     suspend fun dispatch(context: MessageContext, format: MessageFormat = MessageFormat.JSON): PipelineResult {
-        // Parse once: reuse result for both condition matching and NODE1 validation
-        var preParsed: MutableMap<String, Any?>? = null
-        val messageFields: Map<String, String?> = try {
-            val parsed = parserRegistry.getParser(format).parse(context.rawBytes).toMutableMap()
-            preParsed = parsed
-            FlatMessageAccessor.flatten(parsed).mapValues { it.value?.toString() }
-        } catch (e: Exception) {
-            emptyMap()
+        // context.parsedMessage 가 있으면 파싱 생략 (gRPC DynamicMessage 변환 결과 등)
+        var preParsed: MutableMap<String, Any?>? = context.parsedMessage
+        val messageFields: Map<String, String?> = if (preParsed != null) {
+            FlatMessageAccessor.flatten(preParsed).mapValues { it.value?.toString() }
+        } else {
+            try {
+                val parsed = parserRegistry.getParser(format).parse(context.rawBytes).toMutableMap()
+                preParsed = parsed
+                FlatMessageAccessor.flatten(parsed).mapValues { it.value?.toString() }
+            } catch (e: Exception) {
+                emptyMap()
+            }
         }
 
         val (exactEndpointIndex, wildcardEndpointUnits, compositeExactEndpointIndex, compositeWildcardEndpointUnits, noEndpointUnits) =

@@ -5,6 +5,7 @@ import axios from 'axios'
 
 interface ServerSession { clientIp: string; sessionCount: number; allActive: boolean }
 interface ClientConnection { key: string; connected: boolean }
+interface GrpcServerSession { key: string; streamCount: number }
 interface UnitStat {
   unitId: string
   unitName: string
@@ -17,6 +18,8 @@ interface ConnectionStatus {
   webSocketServer: ServerSession[]
   webSocketClient: ClientConnection[]
   tcpClient: ClientConnection[]
+  grpcServer: GrpcServerSession[]
+  grpcClient: ClientConnection[]
 }
 interface MonitorStatus {
   windowMinutes: number
@@ -42,6 +45,8 @@ function totalConnections(c: ConnectionStatus) {
     + c.webSocketServer.filter(s => s.allActive).length
     + c.webSocketClient.filter(s => s.connected).length
     + c.tcpClient.filter(s => s.connected).length
+    + c.grpcServer.reduce((sum, s) => sum + s.streamCount, 0)
+    + c.grpcClient.filter(s => s.connected).length
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -191,7 +196,7 @@ export default function MonitoringPage() {
             <SummaryCard
               label="활성 연결 (전체)"
               value={totalConnections(status.connections)}
-              sub={`TCP서버 ${conn!.tcpServer.filter(s=>s.allActive).length} · WS서버 ${conn!.webSocketServer.filter(s=>s.allActive).length} · WS클라 ${conn!.webSocketClient.filter(s=>s.connected).length} · TCP클라 ${conn!.tcpClient.filter(s=>s.connected).length}`}
+              sub={`TCP서버 ${conn!.tcpServer.filter(s=>s.allActive).length} · WS서버 ${conn!.webSocketServer.filter(s=>s.allActive).length} · WS클라 ${conn!.webSocketClient.filter(s=>s.connected).length} · TCP클라 ${conn!.tcpClient.filter(s=>s.connected).length} · gRPC서버 ${conn!.grpcServer.reduce((s,g)=>s+g.streamCount,0)} · gRPC클라 ${conn!.grpcClient.filter(s=>s.connected).length}`}
             />
             <SummaryCard
               label={`성공 처리 (최근 ${windowMinutes < 60 ? windowMinutes + '분' : windowMinutes / 60 + 'h'})`}
@@ -293,6 +298,41 @@ export default function MonitoringPage() {
                   </ul>
               }
             </div>
+            <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700">
+                <span className="text-sm font-semibold text-slate-200">gRPC 서버 스트림</span>
+                <span className="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300">
+                  {conn!.grpcServer.reduce((s, g) => s + g.streamCount, 0)}
+                </span>
+              </div>
+              {conn!.grpcServer.length === 0
+                ? <p className="text-xs text-slate-500 px-4 py-3">연결 없음</p>
+                : <ul className="divide-y divide-slate-700/60">
+                    {conn!.grpcServer.map((s: GrpcServerSession, i) => (
+                      <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
+                        <StatusDot active={s.streamCount > 0} />
+                        <span className="text-slate-300 font-mono truncate">{s.key}</span>
+                        <span className="ml-auto text-green-400 font-mono">
+                          {s.streamCount} stream{s.streamCount !== 1 ? 's' : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+              }
+            </div>
+            <ConnectionSection
+              title="gRPC 클라이언트"
+              items={conn!.grpcClient}
+              renderRow={(s: ClientConnection, i) => (
+                <li key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
+                  <StatusDot active={s.connected} />
+                  <span className="text-slate-300 font-mono truncate">{s.key}</span>
+                  <span className={`ml-auto text-xs ${s.connected ? 'text-green-400' : 'text-amber-400'}`}>
+                    {s.connected ? 'CONNECTED' : 'RECONNECTING'}
+                  </span>
+                </li>
+              )}
+            />
           </div>
 
           {/* Pipeline stats table */}

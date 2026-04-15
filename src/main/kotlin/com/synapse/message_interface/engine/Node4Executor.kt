@@ -6,6 +6,10 @@ import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.parser.MessageParserRegistry
 import com.synapse.message_interface.queue.MongoQueueService
+import com.synapse.message_interface.reception.DynamicProtoUtil.buildDescriptor
+import com.synapse.message_interface.reception.DynamicProtoUtil.toDynamicMessage
+import com.synapse.message_interface.reception.GrpcClientRegistry
+import com.synapse.message_interface.reception.GrpcSessionRegistry
 import com.synapse.message_interface.reception.TcpClientConnectionPool
 import com.synapse.message_interface.reception.TcpConnectionRegistry
 import com.synapse.message_interface.reception.TcpServerSessionRegistry
@@ -36,7 +40,9 @@ class Node4Executor(
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val kafkaProducerPool: KafkaProducerPool,
-    private val mongoQueueService: MongoQueueService
+    private val mongoQueueService: MongoQueueService,
+    private val grpcSessionRegistry: GrpcSessionRegistry,
+    private val grpcClientRegistry: GrpcClientRegistry,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -44,14 +50,22 @@ class Node4Executor(
      * Serialize and send the output DTO to the target.
      * Returns response bytes if the protocol provides a response, otherwise null.
      * Applies timeout and retry as configured in [definition].
+     *
+     * gRPC 프로토콜: parserRegistry 를 거치지 않고 DynamicMessage 로 직접 직렬화.
      */
     suspend fun execute(data: Map<String, Any?>, definition: Node4Definition, context: MessageContext): ByteArray? {
-        val serialized = parserRegistry.getParser(definition.messageFormat).serialize(data, definition.xmlRootElement)
-        // MONGO_QUEUE_PUBLISHER는 traceId를 dedup 키로 사용하여 재시도 중복 발행 방지
         val mongoMessageId = context.traceId
 
         return withRetry(definition.retryCount, definition.retryDelaySeconds, definition.timeoutMs) {
-            sendByProtocol(serialized, definition, context, mongoMessageId)
+            if (definition.protocol == ProtocolType.GRPC_SERVER ||
+                definition.protocol == ProtocolType.GRPC_CLIENT) {
+                sendViaGrpc(data, definition, context)
+                null
+            } else {
+                val serialized = parserRegistry.getParser(definition.messageFormat)
+                    .serialize(data, definition.xmlRootElement)
+                sendByProtocol(serialized, definition, context, mongoMessageId)
+            }
         }
     }
 
@@ -92,6 +106,11 @@ class Node4Executor(
             ProtocolType.MONGO_QUEUE_CONSUMER -> {
                 throw Node4SendException("MongoDB Queue Consumer는 Node4 송신 프로토콜로 사용할 수 없습니다.")
             }
+            ProtocolType.GRPC_SERVER,
+            ProtocolType.GRPC_CLIENT -> {
+                // execute() 에서 gRPC 분기를 먼저 처리하므로 여기 도달하지 않음
+                throw Node4SendException("gRPC 프로토콜은 별도 경로로 처리됩니다.")
+            }
         }
 
     private suspend fun <T> withRetry(retryCount: Int, retryDelaySeconds: Int, timeoutMs: Long, block: suspend () -> T): T {
@@ -126,6 +145,7 @@ class Node4Executor(
             val contentType = when (definition.messageFormat) {
                 MessageFormat.JSON -> "application/json"
                 MessageFormat.XML -> "application/xml"
+                MessageFormat.PROTOBUF -> "application/x-protobuf"
             }
             webClient.post()
                 .uri(url)
@@ -252,6 +272,83 @@ class Node4Executor(
             log.debug("[Node4] MongoDB 큐 발행 완료: queueName=$queueName, messageId=$messageId")
         } catch (e: Exception) {
             throw Node4SendException("MongoDB 큐 발행 실패 (queueName=$queueName): ${e.message}", e)
+        }
+    }
+
+    // ── gRPC ─────────────────────────────────────────────────────────────────
+
+    /**
+     * gRPC bidi stream 으로 메시지를 전송한다.
+     *
+     * GRPC_SERVER: context.metadata["grpcStreamId"] / ["unitId"] 로 세션을 찾아 응답.
+     * GRPC_CLIENT: definition.targetHost:targetPort/serviceName/methodName 키로 연결된 스트림에 전송.
+     */
+    private suspend fun sendViaGrpc(data: Map<String, Any?>, definition: Node4Definition, context: MessageContext) {
+        val schema = definition.protoSchema
+            ?: throw Node4SendException("gRPC Node4 에 protoSchema 가 설정되지 않았습니다.")
+        if (schema.isEmpty())
+            throw Node4SendException("gRPC Node4 protoSchema 가 비어 있습니다.")
+
+        val svcName     = definition.grpcServiceName ?: "MessageInterfaceService"
+        val msgBaseName = svcName.substringAfterLast('.')
+        val messages = definition.protoMessages.orEmpty()
+        val descriptor = buildDescriptor("${msgBaseName}Response", schema, messages)
+        val message = data.toDynamicMessage(descriptor)
+
+        when (definition.protocol) {
+            ProtocolType.GRPC_SERVER -> {
+                val targetIp = definition.targetPath
+                val unitId   = context.metadata["unitId"]
+                    ?: throw Node4SendException("gRPC Server 응답: context 에 unitId 없음")
+                if (!targetIp.isNullOrBlank()) {
+                    // 대상 IP 기반 전송 — 해당 IP로 연결된 모든 gRPC 스트림에 전송
+                    try {
+                        grpcSessionRegistry.sendByIp(unitId, targetIp, message)
+                    } catch (e: Exception) {
+                        throw Node4SendException("gRPC Server IP 기반 전송 실패 (ip=$targetIp): ${e.message}", e)
+                    }
+                } else {
+                    // 수신한 스트림에 응답 (기본 동작)
+                    val streamId = context.metadata["grpcStreamId"]
+                        ?: throw Node4SendException("gRPC Server 응답: context 에 grpcStreamId 없음")
+                    try {
+                        grpcSessionRegistry.send(unitId, streamId, message)
+                    } catch (e: Exception) {
+                        throw Node4SendException("gRPC Server 응답 실패 (streamId=$streamId): ${e.message}", e)
+                    }
+                }
+            }
+            ProtocolType.GRPC_CLIENT -> {
+                val host    = definition.targetHost    ?: "localhost"
+                val port    = definition.targetPort    ?: 9090
+                val method  = definition.grpcMethodName ?: "BiStream"
+                val key     = "$host:$port/$svcName/$method"
+                // 스트림이 없으면 자동으로 연결 시작
+                if (!grpcClientRegistry.isConnected(key)) {
+                    log.info("[Node4] gRPC Client 미연결 → 자동 연결 시작: key=$key")
+                    try {
+                        grpcClientRegistry.getOrConnectForSendOnly(
+                            key = key,
+                            host = host,
+                            port = port,
+                            svcName = svcName,
+                            methodName = method,
+                            requestDescriptor = descriptor,
+                            responseDescriptor = descriptor,
+                            reconnectEnabled = definition.reconnectEnabled,
+                            reconnectDelaySeconds = definition.reconnectDelaySeconds
+                        )
+                    } catch (e: Exception) {
+                        throw Node4SendException("gRPC Client 연결 실패 (key=$key): ${e.message}", e)
+                    }
+                }
+                try {
+                    grpcClientRegistry.send(key, message)
+                } catch (e: Exception) {
+                    throw Node4SendException("gRPC Client 전송 실패 (key=$key): ${e.message}", e)
+                }
+            }
+            else -> throw Node4SendException("sendViaGrpc: 잘못된 프로토콜 ${definition.protocol}")
         }
     }
 

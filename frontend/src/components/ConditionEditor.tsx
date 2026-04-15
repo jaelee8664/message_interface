@@ -4,7 +4,7 @@ import { WorkflowCondition, ConditionType, LogicalOp, ProtocolType } from '../ty
 import { InputField } from './ui/FormField'
 
 // Protocols that carry no endpoint — ENDPOINT condition type is meaningless for these
-const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER']
+const NO_ENDPOINT_PROTOCOLS: ProtocolType[] = ['TCP_SERVER', 'TCP_CLIENT', 'KAFKA_CONSUMER', 'GRPC_SERVER', 'GRPC_CLIENT']
 
 interface Props {
   condition: WorkflowCondition

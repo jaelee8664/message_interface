@@ -1,10 +1,33 @@
-export type MessageFormat = 'JSON' | 'XML'
+export type MessageFormat = 'JSON' | 'XML' | 'PROTOBUF'
 export type ProtocolType =
   | 'WEBSOCKET_SERVER' | 'WEBSOCKET_CLIENT'
   | 'TCP_SERVER' | 'TCP_CLIENT'
   | 'KAFKA_CONSUMER' | 'KAFKA_PUBLISHER'
   | 'REST_SERVER' | 'REST_CLIENT'
   | 'MONGO_QUEUE_CONSUMER' | 'MONGO_QUEUE_PUBLISHER'
+  | 'GRPC_SERVER' | 'GRPC_CLIENT'
+
+// ── Protobuf 스키마 ──────────────────────────────────────────────────────────
+
+export type ProtoFieldType =
+  | 'STRING' | 'INT32' | 'INT64' | 'FLOAT' | 'DOUBLE' | 'BOOL' | 'BYTES'
+  | 'UINT32' | 'UINT64' | 'SINT32' | 'SINT64'
+
+export type ProtoFieldLabel = 'OPTIONAL' | 'REPEATED'
+
+export interface ProtoFieldDef {
+  number: number
+  name: string
+  type: ProtoFieldType
+  label: ProtoFieldLabel
+  messageTypeName?: string   // non-null → MESSAGE 타입 필드 (type 필드는 무시됨)
+}
+
+export interface ProtoMessageDef {
+  name: string
+  fields: ProtoFieldDef[]
+}
+
 export type FieldType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOLEAN' | 'LIST' | 'MAP' | 'CUSTOM'
 export type NodeType = 'NODE0' | 'NODE1' | 'NODE2' | 'NODE3' | 'NODE4' | 'NODE5'
 export type ConditionType = 'ENDPOINT' | 'FIELD_VALUE' | 'CONTAINS_KEY'
@@ -39,12 +62,18 @@ export interface Node0Definition {
   // MONGO_QUEUE_CONSUMER 전용
   mongoQueueName?: string
   mongoQueueMaxRetries?: number
+  // gRPC 전용 (GRPC_SERVER / GRPC_CLIENT)
+  grpcServiceName?: string
+  grpcMethodName?: string
 }
 
 export interface Node1Definition {
   messageFormat: MessageFormat
   fields: FieldDefinition[]
   customDtos: Array<{ name: string; fields: FieldDefinition[] }>
+  // gRPC 전용: proto 스키마 (messageFormat == 'PROTOBUF' 일 때 사용)
+  protoSchema?: ProtoFieldDef[]
+  protoMessages?: ProtoMessageDef[]   // 중첩 MESSAGE 타입 정의
 }
 
 export interface ValueReplaceRule { key: string; matchValue: string; afterValue: string }
@@ -101,6 +130,11 @@ export interface Node4Definition {
   mongoQueueName?: string
   // XML 직렬화 전용: 출력 메시지의 루트 엘리먼트 이름
   xmlRootElement?: string
+  // gRPC 전용
+  grpcServiceName?: string
+  grpcMethodName?: string
+  protoSchema?: ProtoFieldDef[]
+  protoMessages?: ProtoMessageDef[]   // 중첩 MESSAGE 타입 정의
 }
 
 // ── NODE5 – Response node ─────────────────────────────────────────────────────

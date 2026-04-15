@@ -59,7 +59,7 @@ class WebSocketClientHandler(
 
                                 val pingSentAt = System.currentTimeMillis()
                                 try {
-                                    session.send(Mono.just(session.pingMessage { it.wrap("ping".toByteArray()) }))
+                                    session.send(Mono.just(session.pingMessage { it.wrap(ByteArray(0)) }))
                                         .awaitFirstOrNull()
                                 } catch (e: Exception) {
                                     log.warn("[WebSocket Client] Ping 전송 실패: ${e.message}")

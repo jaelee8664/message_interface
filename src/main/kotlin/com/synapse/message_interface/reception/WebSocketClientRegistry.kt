@@ -109,6 +109,8 @@ class WebSocketClientRegistry {
         val msg = when (format) {
             MessageFormat.JSON, MessageFormat.XML ->
                 session.textMessage(String(data, Charsets.UTF_8))
+            MessageFormat.PROTOBUF ->
+                throw IllegalArgumentException("WebSocket은 PROTOBUF 포맷을 지원하지 않습니다")
         }
         session.send(Mono.just(msg)).awaitFirstOrNull()
     }

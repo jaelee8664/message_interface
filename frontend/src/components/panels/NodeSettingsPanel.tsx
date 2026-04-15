@@ -120,9 +120,18 @@ export default function NodeSettingsPanel() {
               unitId={activeUnit.id}
             />
           )}
-          {editingNode.nodeType === 'NODE1' && (
-            <Node1Panel key={editingNode.id} definition={editingNode.node1} onChange={updateDefinition} />
-          )}
+          {editingNode.nodeType === 'NODE1' && (() => {
+            const node0Protocol = activeUnit?.nodes.find(n => n.nodeType === 'NODE0')?.node0?.protocol
+            const isGrpc = node0Protocol === 'GRPC_SERVER' || node0Protocol === 'GRPC_CLIENT'
+            return (
+              <Node1Panel
+                key={editingNode.id}
+                definition={editingNode.node1}
+                onChange={updateDefinition}
+                isGrpc={isGrpc}
+              />
+            )
+          })()}
           {editingNode.nodeType === 'NODE2' && (
             <Node2Panel definition={editingNode.node2} onChange={updateDefinition} unitId={activeUnit.id} />
           )}

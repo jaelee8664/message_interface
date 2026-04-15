@@ -104,12 +104,42 @@ class ManualService(
         append("</response>")
     }
 
+    private fun toProtobufResponseExample(fields: List<NodeErrorField>): String = buildString {
+        appendLine("message Response {")
+        buildResponseExampleMap(fields).entries.forEachIndexed { idx, (k, _) ->
+            appendLine("  string $k = ${idx + 1};")
+        }
+        append("}")
+    }
+
     private fun toXmlExample(fields: List<FieldDefinition>, customDtos: List<CustomDtoDefinition>): String {
         val map = buildExampleMap(fields, customDtos)
         return buildString {
             appendLine("<message>")
             appendMapAsXml(map, indent = "  ")
             append("</message>")
+        }
+    }
+
+    private fun toProtobufExample(fields: List<FieldDefinition>, customDtos: List<CustomDtoDefinition>): String {
+        val map = buildExampleMap(fields, customDtos)
+        return buildString {
+            appendLine("message Message {")
+            var fieldNumber = 1
+            map.forEach { (k, v) ->
+                val type = when (v) {
+                    is Boolean -> "bool"
+                    is Int     -> "int32"
+                    is Long    -> "int64"
+                    is Float   -> "float"
+                    is Double  -> "double"
+                    is List<*> -> "repeated string"
+                    is Map<*, *> -> "bytes"
+                    else       -> "string"
+                }
+                appendLine("  $type $k = ${fieldNumber++};")
+            }
+            append("}")
         }
     }
 
@@ -196,6 +226,11 @@ class ManualService(
                         appendLine(toXmlExample(node1.fields, node1.customDtos))
                         appendLine("```")
                     }
+                    MessageFormat.PROTOBUF -> {
+                        appendLine("```protobuf")
+                        appendLine(toProtobufExample(node1.fields, node1.customDtos))
+                        appendLine("```")
+                    }
                 }
             }
             appendLine()
@@ -265,8 +300,9 @@ class ManualService(
             appendLine("##### 예시 응답")
             appendLine()
             when (sc.messageFormat) {
-                MessageFormat.JSON -> { appendLine("```json"); appendLine(toJsonResponseExample(sc.fields)); appendLine("```") }
-                MessageFormat.XML  -> { appendLine("```xml");  appendLine(toXmlResponseExample(sc.fields));  appendLine("```") }
+                MessageFormat.JSON     -> { appendLine("```json");     appendLine(toJsonResponseExample(sc.fields)); appendLine("```") }
+                MessageFormat.XML      -> { appendLine("```xml");      appendLine(toXmlResponseExample(sc.fields));  appendLine("```") }
+                MessageFormat.PROTOBUF -> { appendLine("```protobuf"); appendLine(toProtobufResponseExample(sc.fields)); appendLine("```") }
             }
         } else {
             appendLine("- **본문**: 없음")
@@ -286,8 +322,9 @@ class ManualService(
             appendLine("##### 예시 오류 응답")
             appendLine()
             when (ec.messageFormat) {
-                MessageFormat.JSON -> { appendLine("```json"); appendLine(toJsonResponseExample(ec.fields)); appendLine("```") }
-                MessageFormat.XML  -> { appendLine("```xml");  appendLine(toXmlResponseExample(ec.fields));  appendLine("```") }
+                MessageFormat.JSON     -> { appendLine("```json");     appendLine(toJsonResponseExample(ec.fields));     appendLine("```") }
+                MessageFormat.XML      -> { appendLine("```xml");      appendLine(toXmlResponseExample(ec.fields));      appendLine("```") }
+                MessageFormat.PROTOBUF -> { appendLine("```protobuf"); appendLine(toProtobufResponseExample(ec.fields)); appendLine("```") }
             }
         }
     }
@@ -352,8 +389,9 @@ class ManualService(
             if (node1.fields.isNotEmpty()) {
                 heading3(doc, "예시 메시지")
                 val example = when (node1.messageFormat) {
-                    MessageFormat.JSON -> toJsonExample(node1.fields, node1.customDtos)
-                    MessageFormat.XML  -> toXmlExample(node1.fields, node1.customDtos)
+                    MessageFormat.JSON     -> toJsonExample(node1.fields, node1.customDtos)
+                    MessageFormat.XML      -> toXmlExample(node1.fields, node1.customDtos)
+                    MessageFormat.PROTOBUF -> toProtobufExample(node1.fields, node1.customDtos)
                 }
                 monoText(doc, example)
             }
@@ -371,8 +409,9 @@ class ManualService(
                 responseFieldTable(doc, sc.fields.map { Triple(it.key, it.source.name, it.value) })
                 heading3(doc, "예시 응답")
                 monoText(doc, when (sc.messageFormat) {
-                    MessageFormat.JSON -> toJsonResponseExample(sc.fields)
-                    MessageFormat.XML  -> toXmlResponseExample(sc.fields)
+                    MessageFormat.JSON     -> toJsonResponseExample(sc.fields)
+                    MessageFormat.XML      -> toXmlResponseExample(sc.fields)
+                    MessageFormat.PROTOBUF -> toProtobufResponseExample(sc.fields)
                 })
             } else {
                 bodyText(doc, "본문: 없음")
@@ -384,8 +423,9 @@ class ManualService(
                 responseFieldTable(doc, ec.fields.map { Triple(it.key, it.source.name, it.value) })
                 heading3(doc, "예시 오류 응답")
                 monoText(doc, when (ec.messageFormat) {
-                    MessageFormat.JSON -> toJsonResponseExample(ec.fields)
-                    MessageFormat.XML  -> toXmlResponseExample(ec.fields)
+                    MessageFormat.JSON     -> toJsonResponseExample(ec.fields)
+                    MessageFormat.XML      -> toXmlResponseExample(ec.fields)
+                    MessageFormat.PROTOBUF -> toProtobufResponseExample(ec.fields)
                 })
             }
         } else {
