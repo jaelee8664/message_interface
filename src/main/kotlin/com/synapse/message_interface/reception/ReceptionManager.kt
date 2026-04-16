@@ -80,6 +80,10 @@ class ReceptionManager(
                 log.info("[ReceptionManager] TCP Client 시작: unitId={}", unit.id)
             }
             ProtocolType.KAFKA_CONSUMER -> {
+                if (node0.topic.isNullOrBlank()) {
+                    log.warn("[ReceptionManager] Kafka Consumer topic 미설정 - 핸들러 시작 건너뜀: unitId={}", unit.id)
+                    return
+                }
                 val handler = KafkaConsumerHandler(unit, node0, dispatcher, node0.bootstrapServers ?: "localhost:9092")
                 handler.start()
                 activeHandlers[unit.id] = handler

@@ -15,6 +15,7 @@ export default function WorkflowNodeComponent({ id, data, selected }: NodeProps)
   const trace = traceMap[id]
   const isActive = activeNodeId === id
   const isError = trace?.status === 'ERROR'
+  const isNode0Skipped = trace && d.nodeType === 'NODE0'
 
   return (
     <div
@@ -22,15 +23,19 @@ export default function WorkflowNodeComponent({ id, data, selected }: NodeProps)
       style={{
         borderColor: isActive
           ? '#facc15'
-          : trace
-            ? (isError ? '#f87171' : '#4ade80')
-            : selected ? d.color : `${d.color}66`,
+          : isNode0Skipped
+            ? '#475569'
+            : trace
+              ? (isError ? '#f87171' : '#4ade80')
+              : selected ? d.color : `${d.color}66`,
         background: '#1e293b',
         boxShadow: isActive
           ? '0 0 14px #facc1566'
-          : trace
-            ? (isError ? '0 0 8px #f8717133' : '0 0 8px #4ade8033')
-            : selected ? `0 0 12px ${d.color}88` : 'none',
+          : isNode0Skipped
+            ? 'none'
+            : trace
+              ? (isError ? '0 0 8px #f8717133' : '0 0 8px #4ade8033')
+              : selected ? `0 0 12px ${d.color}88` : 'none',
       }}
     >
       <Handle type="target" position={Position.Left} style={{ background: d.color }} />
@@ -62,11 +67,17 @@ export default function WorkflowNodeComponent({ id, data, selected }: NodeProps)
       {trace && (
         <div
           className={`absolute -top-2.5 -right-2.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-semibold shadow-lg pointer-events-none ${
-            isError ? 'bg-red-600 text-white' : 'bg-green-600 text-white'
+            isError ? 'bg-red-600 text-white' : isNode0Skipped ? 'bg-slate-600 text-slate-300' : 'bg-green-600 text-white'
           }`}
         >
-          <span>{isError ? '✕' : '✓'}</span>
-          <span>{trace.durationMs}ms</span>
+          {isNode0Skipped ? (
+            <span>건너뜀</span>
+          ) : (
+            <>
+              <span>{isError ? '✕' : '✓'}</span>
+              <span>{trace.durationMs}ms</span>
+            </>
+          )}
         </div>
       )}
     </div>

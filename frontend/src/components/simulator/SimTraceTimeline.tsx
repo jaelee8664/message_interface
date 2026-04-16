@@ -99,7 +99,7 @@ export default function SimTraceTimeline({
                     <div
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{
-                        background: isError ? '#ef4444' : color,
+                        background: isError ? '#ef4444' : trace.nodeType === 'NODE0' ? '#475569' : color,
                         boxShadow: isError ? '0 0 4px #ef444488' : undefined,
                       }}
                     />
@@ -108,15 +108,20 @@ export default function SimTraceTimeline({
 
                   <span className="text-xs font-mono font-semibold text-white w-12 shrink-0">{trace.nodeType}</span>
                   <span className="text-xs text-slate-400 flex-1">{NODE_LABELS[trace.nodeType] ?? ''}</span>
-                  <span className={`text-xs shrink-0 ${isError ? 'text-red-400' : 'text-slate-500'}`}>
-                    {isError ? '✕' : `${trace.durationMs}ms`}
+                  <span className={`text-xs shrink-0 ${isError ? 'text-red-400' : trace.nodeType === 'NODE0' ? 'text-slate-500' : 'text-slate-500'}`}>
+                    {isError ? '✕' : trace.nodeType === 'NODE0' ? '건너뜀' : `${trace.durationMs}ms`}
                   </span>
                   <span className="text-slate-600 text-xs ml-1">{isExpanded ? '▲' : '▼'}</span>
                 </button>
 
                 {/* Expanded I/O */}
                 {isExpanded && (
-                  <div className="px-3 pb-3 space-y-2 bg-slate-800/40 border-l-2 ml-5" style={{ borderColor: color }}>
+                  <div className="px-3 pb-3 space-y-2 bg-slate-800/40 border-l-2 ml-5" style={{ borderColor: trace.nodeType === 'NODE0' ? '#475569' : color }}>
+                    {trace.nodeType === 'NODE0' && (
+                      <div className="text-xs text-slate-500 pt-2">
+                        테스트 시 NODE0(수신)은 건너뜁니다 — 메시지가 직접 주입됩니다.
+                      </div>
+                    )}
                     {isError && trace.errorMessage && (
                       <div>
                         <div className="text-xs text-red-400 font-medium mb-1 pt-2">에러</div>

@@ -1,10 +1,17 @@
 import { WorkflowUnit, WorkflowCondition, WorkflowNode, ProtocolType } from '../types/workflow'
 import { generateId } from './generateId'
 
+interface KafkaConfig {
+  kafkaTopic?: string
+  kafkaBootstrapServers?: string
+  kafkaGroupId?: string
+}
+
 export function createDefaultWorkflowUnit(
   name: string,
   condition: WorkflowCondition,
-  protocol: ProtocolType
+  protocol: ProtocolType,
+  kafkaConfig?: KafkaConfig
 ): WorkflowUnit {
   const unitId = generateId('unit')
   const node0Id = generateId('n0')
@@ -12,6 +19,7 @@ export function createDefaultWorkflowUnit(
   const node5Id = generateId('n5')
 
   const isMongoQueueConsumer = protocol === 'MONGO_QUEUE_CONSUMER'
+  const isKafkaConsumer = protocol === 'KAFKA_CONSUMER'
 
   // Default graph:
   // - Most protocols: create only NODE0 (reception)
@@ -32,6 +40,13 @@ export function createDefaultWorkflowUnit(
               path: '/queue/example',
               mongoQueueName: 'example-queue',
               mongoQueueMaxRetries: 3,
+            }
+          : {}),
+        ...(isKafkaConsumer
+          ? {
+              topic: kafkaConfig?.kafkaTopic,
+              bootstrapServers: kafkaConfig?.kafkaBootstrapServers,
+              groupId: kafkaConfig?.kafkaGroupId,
             }
           : {}),
       },

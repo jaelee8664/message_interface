@@ -37,6 +37,9 @@ export default function CreateUnitModal({ onClose }: Props) {
   const [name, setName] = useState('')
   const [protocol, setProtocol] = useState<ProtocolType>('REST_SERVER')
   const [condition, setCondition] = useState<WorkflowCondition>(DEFAULT_CONDITION_FOR('REST_SERVER'))
+  const [kafkaTopic, setKafkaTopic] = useState('')
+  const [kafkaBootstrapServers, setKafkaBootstrapServers] = useState('')
+  const [kafkaGroupId, setKafkaGroupId] = useState('')
   const [modifiedBy, setModifiedBy] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -46,6 +49,9 @@ export default function CreateUnitModal({ onClose }: Props) {
   const handleProtocolChange = (p: ProtocolType) => {
     setProtocol(p)
     setCondition(DEFAULT_CONDITION_FOR(p))
+    setKafkaTopic('')
+    setKafkaBootstrapServers('')
+    setKafkaGroupId('')
     setError(null)
   }
 
@@ -69,6 +75,7 @@ export default function CreateUnitModal({ onClose }: Props) {
   const handleNext = async () => {
     if (!name.trim()) { setError('워크플로우 단위 이름을 입력해 주세요.'); return }
     if (!isConditionFilled()) { setError('조건을 완전히 입력해 주세요.'); return }
+    if (protocol === 'KAFKA_CONSUMER' && !kafkaTopic.trim()) { setError('Kafka Topic을 입력해 주세요.'); return }
     setError(null)
 
     // Validate condition before proceeding
@@ -100,7 +107,11 @@ export default function CreateUnitModal({ onClose }: Props) {
     setSaving(true)
 
     try {
-      const unit = createDefaultWorkflowUnit(name, condition, protocol)
+      const unit = createDefaultWorkflowUnit(name, condition, protocol, {
+        kafkaTopic: kafkaTopic || undefined,
+        kafkaBootstrapServers: kafkaBootstrapServers || undefined,
+        kafkaGroupId: kafkaGroupId || undefined,
+      })
       await saveUnit(unit, modifiedBy, password)
       selectUnit(unit.id)
       onClose()
@@ -174,6 +185,43 @@ export default function CreateUnitModal({ onClose }: Props) {
                     </p>
                   )}
                 </div>
+
+                {/* Kafka Consumer 설정 */}
+                {protocol === 'KAFKA_CONSUMER' && (
+                  <div className="space-y-3">
+                    <div className="text-xs font-medium text-slate-300">Kafka 설정</div>
+                    <div className="space-y-1">
+                      <label className="block text-xs text-slate-400">Topic <span className="text-red-400">*</span></label>
+                      <input
+                        type="text"
+                        value={kafkaTopic}
+                        onChange={(e) => { setKafkaTopic(e.target.value); setError(null) }}
+                        placeholder="예: order-events"
+                        className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs text-slate-400">Bootstrap Servers</label>
+                      <input
+                        type="text"
+                        value={kafkaBootstrapServers}
+                        onChange={(e) => setKafkaBootstrapServers(e.target.value)}
+                        placeholder="예: localhost:9092"
+                        className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs text-slate-400">Consumer Group ID</label>
+                      <input
+                        type="text"
+                        value={kafkaGroupId}
+                        onChange={(e) => setKafkaGroupId(e.target.value)}
+                        placeholder="예: message-interface-group"
+                        className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Condition editor */}
                 <div>

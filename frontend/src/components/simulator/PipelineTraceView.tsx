@@ -61,15 +61,22 @@ function NodeTraceCard({ trace }: { trace: SimulationNodeTrace }) {
       >
         <span className="text-white font-bold text-xs w-16 shrink-0">{trace.nodeType}</span>
         <span className="text-slate-200 text-xs flex-1">{NODE_LABELS[trace.nodeType] ?? trace.nodeType}</span>
-        <span className={`text-xs font-medium shrink-0 ${isError ? 'text-red-300' : 'text-green-300'}`}>
-          {isError ? '❌ 에러' : '✅ 성공'}
+        <span className={`text-xs font-medium shrink-0 ${isError ? 'text-red-300' : trace.nodeType === 'NODE0' ? 'text-slate-400' : 'text-green-300'}`}>
+          {isError ? '❌ 에러' : trace.nodeType === 'NODE0' ? '⏭ 건너뜀' : '✅ 성공'}
         </span>
-        <span className="text-slate-400 text-xs shrink-0">{trace.durationMs}ms</span>
+        {trace.nodeType !== 'NODE0' && (
+          <span className="text-slate-400 text-xs shrink-0">{trace.durationMs}ms</span>
+        )}
         <span className="text-slate-400 text-xs">{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
         <div className="bg-slate-800 px-3 py-2 space-y-2 text-sm">
+          {trace.nodeType === 'NODE0' && (
+            <div className="text-slate-500 text-xs">
+              테스트 시 NODE0(수신)은 건너뜁니다 — 메시지가 직접 주입됩니다.
+            </div>
+          )}
           {isError && trace.errorMessage && (
             <div>
               <div className="text-red-400 font-medium text-xs mb-1">에러 메시지</div>
@@ -137,9 +144,11 @@ export default function PipelineTraceView({ traces, success, response, errorMess
       <div className="flex items-center gap-1 flex-wrap">
         {traces.map((trace, i) => (
           <div key={trace.nodeId} className="flex items-center gap-1">
-            <div className={`px-2 py-1 rounded text-xs font-bold text-white ${NODE_COLORS[trace.nodeType] ?? 'bg-slate-600'} ${
-              trace.status === 'ERROR' ? 'ring-2 ring-red-400' : ''
-            }`}>
+            <div className={`px-2 py-1 rounded text-xs font-bold ${
+              trace.nodeType === 'NODE0'
+                ? 'bg-slate-700 text-slate-400'
+                : `${NODE_COLORS[trace.nodeType] ?? 'bg-slate-600'} text-white`
+            } ${trace.status === 'ERROR' ? 'ring-2 ring-red-400' : ''}`}>
               {trace.nodeType}
             </div>
             {i < traces.length - 1 && (
