@@ -124,21 +124,20 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         val from = fromDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now().minusDays(days.toLong())
         val to = toDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now()
 
-        val allLogs: List<TraceLog> = if (fromFiles) {
-            collectAllFromFiles(from, to)
+        // Pass 1: find matching traceIds (file scan without storing all logs)
+        // Pass 2: collect only logs belonging to matched traceIds
+        val grouped = if (fromFiles) {
+            val matchedTraceIds = collectMatchedTraceIds(from, to, fieldKey, fieldValue)
+            if (matchedTraceIds.isEmpty()) return@withContext TraceSearchResult(fieldKey, fieldValue, emptyList())
+            collectLogsByTraceIds(from, to, matchedTraceIds)
         } else {
-            synchronized(lock) { recentLogs.toList() }
+            val allLogs = synchronized(lock) { recentLogs.toList() }
+            val matchedTraceIds = allLogs
+                .filter { log -> matchesField(log.messageSnippet, fieldKey, fieldValue) }
+                .map { it.traceId }
+                .toSet()
+            allLogs.filter { it.traceId in matchedTraceIds }
         }
-
-        // Pass 1: find system traceIds that contain the searched field value
-        val matchedTraceIds = allLogs
-            .filter { log -> matchesField(log.messageSnippet, fieldKey, fieldValue) }
-            .map { it.traceId }
-            .toSet()
-
-        // Pass 2: group all entries for matched traceIds by traceId, ordered by timestamp
-        val grouped = allLogs
-            .filter { it.traceId in matchedTraceIds }
             .groupBy { it.traceId }
             .map { (traceId, entries) ->
                 val sorted = entries.sortedBy { it.timestamp }
@@ -273,10 +272,9 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         }.getOrDefault(false)
     }
 
-    private fun collectAllFromFiles(fromDate: LocalDate, toDate: LocalDate): List<TraceLog> {
-        val results = mutableListOf<TraceLog>()
-        logDir.listFiles()
-            ?.filter { f ->
+    private fun targetFiles(fromDate: LocalDate, toDate: LocalDate): List<File> =
+        (logDir.listFiles() ?: emptyArray())
+            .filter { f ->
                 f.name.startsWith("trace_") && f.name.endsWith(".jsonl") &&
                 runCatching {
                     val dateStr = f.name.removePrefix("trace_").removeSuffix(".jsonl")
@@ -284,16 +282,45 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
                     !fileDate.isBefore(fromDate) && !fileDate.isAfter(toDate)
                 }.getOrDefault(false)
             }
-            ?.sortedByDescending { it.name }
-            ?.forEach { file ->
-                file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
-                    reader.lineSequence().forEach { line ->
-                        runCatching {
-                            results.add(objectMapper.readValue(line, TraceLog::class.java))
+            .sortedByDescending { it.name }
+
+    /** Pass 1: scan files and collect only traceIds where fieldKey == fieldValue. */
+    private fun collectMatchedTraceIds(
+        fromDate: LocalDate, toDate: LocalDate,
+        fieldKey: String, fieldValue: String
+    ): Set<String> {
+        val traceIds = mutableSetOf<String>()
+        for (file in targetFiles(fromDate, toDate)) {
+            file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                reader.lineSequence().forEach { line ->
+                    runCatching {
+                        val log = objectMapper.readValue(line, TraceLog::class.java)
+                        if (matchesField(log.messageSnippet, fieldKey, fieldValue)) {
+                            traceIds.add(log.traceId)
                         }
                     }
                 }
             }
+        }
+        return traceIds
+    }
+
+    /** Pass 2: scan files again and collect only logs belonging to matched traceIds. */
+    private fun collectLogsByTraceIds(
+        fromDate: LocalDate, toDate: LocalDate,
+        traceIds: Set<String>
+    ): List<TraceLog> {
+        val results = mutableListOf<TraceLog>()
+        for (file in targetFiles(fromDate, toDate)) {
+            file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                reader.lineSequence().forEach { line ->
+                    runCatching {
+                        val log = objectMapper.readValue(line, TraceLog::class.java)
+                        if (log.traceId in traceIds) results.add(log)
+                    }
+                }
+            }
+        }
         return results
     }
 

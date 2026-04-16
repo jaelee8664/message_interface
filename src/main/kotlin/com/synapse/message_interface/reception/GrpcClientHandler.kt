@@ -93,7 +93,6 @@ class GrpcClientHandler(
                         log.error("[gRPC Client] 파이프라인 오류 (unitId={}): {}", unit.id, e.message, e)
                     }
                 },
-                reconnectEnabled      = definition.reconnectEnabled,
                 reconnectDelaySeconds = definition.reconnectDelaySeconds,
                 pingEnabled           = definition.pingEnabled,
                 pingIntervalSeconds   = definition.pingIntervalSeconds,

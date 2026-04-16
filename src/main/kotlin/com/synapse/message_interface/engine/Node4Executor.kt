@@ -172,7 +172,7 @@ class Node4Executor(
         val key = "$host:$port$path"
         val uri = URI("ws://$host:$port$path")
         try {
-            webSocketClientRegistry.getOrConnect(key, uri, definition.reconnectEnabled, definition.reconnectDelaySeconds)
+            webSocketClientRegistry.getOrConnect(key, uri, definition.reconnectDelaySeconds)
             webSocketClientRegistry.send(key, data, definition.messageFormat)
         } catch (e: Exception) {
             throw Node4SendException("WebSocket 송신 실패 ($uri): ${e.message}", e)
@@ -214,7 +214,6 @@ class Node4Executor(
                 key = key,
                 host = host,
                 port = port,
-                reconnectEnabled = definition.reconnectEnabled,
                 reconnectDelaySeconds = definition.reconnectDelaySeconds
             )
             tcpClientConnectionPool.send(key, data)
@@ -335,7 +334,6 @@ class Node4Executor(
                             methodName = method,
                             requestDescriptor = descriptor,
                             responseDescriptor = descriptor,
-                            reconnectEnabled = definition.reconnectEnabled,
                             reconnectDelaySeconds = definition.reconnectDelaySeconds
                         )
                     } catch (e: Exception) {

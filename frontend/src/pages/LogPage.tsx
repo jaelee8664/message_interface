@@ -190,8 +190,34 @@ export default function LogPage() {
   const [fieldKey, setFieldKey] = useState('')
   const [fieldValue, setFieldValue] = useState('')
   const [fromFiles, setFromFiles] = useState(true)
-  const [fromDate, setFromDate] = useState(toLocalDateStr(7))
+  const [fromDate, setFromDate] = useState(toLocalDateStr(1))
   const [toDate, setToDate] = useState(toLocalDateStr(0))
+
+  const MAX_DAYS = 2
+
+  function handleFromDateChange(val: string) {
+    setFromDate(val)
+    const from = new Date(val)
+    const to = new Date(toDate)
+    const diffDays = (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)
+    if (diffDays > MAX_DAYS) {
+      const capped = new Date(from)
+      capped.setDate(capped.getDate() + MAX_DAYS)
+      setToDate(capped.toISOString().split('T')[0])
+    }
+  }
+
+  function handleToDateChange(val: string) {
+    setToDate(val)
+    const from = new Date(fromDate)
+    const to = new Date(val)
+    const diffDays = (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)
+    if (diffDays > MAX_DAYS) {
+      const capped = new Date(to)
+      capped.setDate(capped.getDate() - MAX_DAYS)
+      setFromDate(capped.toISOString().split('T')[0])
+    }
+  }
   const [result, setResult] = useState<TraceSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -250,16 +276,16 @@ export default function LogPage() {
           <input
             type="date"
             value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
+            onChange={e => handleFromDateChange(e.target.value)}
             className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-40"
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">종료일</label>
+          <label className="text-xs text-slate-400">종료일 (최대 2일)</label>
           <input
             type="date"
             value={toDate}
-            onChange={e => setToDate(e.target.value)}
+            onChange={e => handleToDateChange(e.target.value)}
             className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-40"
           />
         </div>

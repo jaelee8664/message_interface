@@ -31,7 +31,6 @@ const DEFAULT_DEF: Node4Definition = {
   retryCount: 0,
   retryDelaySeconds: 0,
   timeoutMs: 5000,
-  reconnectEnabled: true,
   reconnectDelaySeconds: 5,
 }
 
@@ -278,26 +277,13 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
       />
 
       {needsReconnect && (
-        <>
-          <SelectField
-            label="재연결"
-            value={def.reconnectEnabled !== false ? 'true' : 'false'}
-            onChange={(e) => update({ reconnectEnabled: e.target.value === 'true' })}
-            options={[
-              { value: 'true', label: '활성화' },
-              { value: 'false', label: '비활성화' },
-            ]}
-          />
-          {def.reconnectEnabled !== false && (
-            <InputField
-              label="재연결 대기 (초)"
-              type="number"
-              value={def.reconnectDelaySeconds ?? 5}
-              onChange={(e) => update({ reconnectDelaySeconds: Math.max(1, Number(e.target.value)) })}
-              placeholder="예: 5"
-            />
-          )}
-        </>
+        <InputField
+          label="재연결 대기 (초)"
+          type="number"
+          value={def.reconnectDelaySeconds ?? 5}
+          onChange={(e) => update({ reconnectDelaySeconds: Math.max(1, Number(e.target.value)) })}
+          placeholder="예: 5"
+        />
       )}
     </div>
   )

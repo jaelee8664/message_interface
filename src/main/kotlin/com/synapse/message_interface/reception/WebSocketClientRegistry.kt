@@ -18,14 +18,15 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Node4 WEBSOCKET_CLIENT 전용 persistent connection 관리.
- * 동일 key(host:port/path)에 대해 하나의 연결을 유지하며, 연결 끊김 시 자동 재연결한다.
+ * 동일 key(host:port/path)에 대해 하나의 연결을 유지하며,
+ * 연결 끊김 시 항상 자동 재연결한다. remove() 호출 시에만 루프가 중단된다.
  */
 @Component
 class WebSocketClientRegistry {
     private val log = LoggerFactory.getLogger(javaClass)
     private val sessions = ConcurrentHashMap<String, WebSocketSession>()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<WebSocketSession>>()
-    private val reconnectFlags = ConcurrentHashMap<String, Boolean>()   // key → reconnectEnabled
+    private val stoppedKeys = ConcurrentHashMap.newKeySet<String>()
     private val reconnectDelays = ConcurrentHashMap<String, Long>()     // key → delayMs
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -36,10 +37,9 @@ class WebSocketClientRegistry {
     suspend fun getOrConnect(
         key: String,
         uri: URI,
-        reconnectEnabled: Boolean = true,
         reconnectDelaySeconds: Int = 5
     ): WebSocketSession {
-        reconnectFlags[key] = reconnectEnabled
+        stoppedKeys.remove(key)
         reconnectDelays[key] = reconnectDelaySeconds * 1000L
 
         sessions[key]?.takeIf { it.isOpen }?.let { return it }
@@ -91,8 +91,8 @@ class WebSocketClientRegistry {
             }
 
             if (!firstAttempt) {
-                if (reconnectFlags[key] == false) {
-                    log.info("[WS Client Registry] 재연결 비활성화, 중지: key=$key")
+                if (stoppedKeys.contains(key)) {
+                    log.info("[WS Client Registry] 연결 중단: key=$key")
                     return
                 }
                 delay(reconnectDelays[key] ?: RECONNECT_DELAY_MS_DEFAULT)
@@ -132,9 +132,8 @@ class WebSocketClientRegistry {
     fun isConnected(key: String) = sessions[key]?.isOpen == true
 
     fun remove(key: String) {
-        reconnectFlags[key] = false   // 재연결 루프 중지
+        stoppedKeys.add(key)
         sessions.remove(key)?.let { if (it.isOpen) scope.launch { it.close().awaitFirstOrNull() } }
-        reconnectFlags.remove(key)
         reconnectDelays.remove(key)
     }
 

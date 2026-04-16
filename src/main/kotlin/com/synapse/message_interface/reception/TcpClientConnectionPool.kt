@@ -30,6 +30,10 @@ import java.util.concurrent.ConcurrentHashMap
  *   재연결 대기 구간에도 pending에 deferred를 등록해 두어
  *   getOrConnect()가 새 루프를 추가 론칭하지 않도록 한다.
  *
+ * ■ 재연결 정책
+ *   연결이 끊기면 항상 재연결을 시도한다 (reconnectDelaySeconds 간격).
+ *   remove() 호출 시에만 루프가 중단된다.
+ *
  * ■ 교차 오염 방지
  *   cleanup 시 remove(key, value) 형태로 자신의 sink/connection만 제거한다.
  */
@@ -40,7 +44,7 @@ class TcpClientConnectionPool {
     private val sinks = ConcurrentHashMap<String, Sinks.Many<ByteArray>>()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Connection>>()
     private val loopRunning = ConcurrentHashMap.newKeySet<String>()
-    private val reconnectFlags = ConcurrentHashMap<String, Boolean>()
+    private val stoppedKeys = ConcurrentHashMap.newKeySet<String>()
     private val reconnectDelays = ConcurrentHashMap<String, Long>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -52,10 +56,9 @@ class TcpClientConnectionPool {
         key: String,
         host: String,
         port: Int,
-        reconnectEnabled: Boolean = true,
         reconnectDelaySeconds: Int = 5
     ): Connection {
-        reconnectFlags[key] = reconnectEnabled
+        stoppedKeys.remove(key)
         reconnectDelays[key] = reconnectDelaySeconds * 1000L
 
         // 빠른 경로: 살아있는 연결 즉시 반환
@@ -138,7 +141,7 @@ class TcpClientConnectionPool {
                     log.warn("[TCP Pool] 연결 실패 (key=$key): ${e.message}")
                 }
 
-                if (reconnectFlags[key] == false) break
+                if (stoppedKeys.contains(key)) break
 
                 // 재연결 대기 전에 deferred 등록 → 이 구간에 getOrConnect()가 새 루프를 만들지 않음
                 val reconnectDeferred = CompletableDeferred<Connection>()
@@ -153,7 +156,7 @@ class TcpClientConnectionPool {
             // 루프 종료 시 대기 중인 호출자에게 실패 알림
             pending.remove(key)?.let { d ->
                 if (!d.isCompleted) {
-                    d.completeExceptionally(IllegalStateException("[TCP Pool] 재연결 비활성화, 루프 종료: $key"))
+                    d.completeExceptionally(IllegalStateException("[TCP Pool] 연결 중단, 루프 종료: $key"))
                 }
             }
         }
@@ -184,9 +187,8 @@ class TcpClientConnectionPool {
     fun isConnected(key: String) = connections[key]?.isDisposed == false
 
     fun remove(key: String) {
-        reconnectFlags[key] = false
+        stoppedKeys.add(key)
         reconnectDelays.remove(key)
-        reconnectFlags.remove(key)
         sinks.remove(key)?.tryEmitComplete()
         connections.remove(key)?.dispose()
     }

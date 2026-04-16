@@ -31,7 +31,6 @@ const DEFAULT: Node0Definition = {
   pingEnabled: false,
   pingIntervalSeconds: 30,
   pongTimeoutSeconds: 10,
-  reconnectEnabled: true,
   reconnectDelaySeconds: 5,
   bidirectional: false,
 }
@@ -284,21 +283,12 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
       )}
 
       {(isClient || isGrpcClient) && (
-        <>
-          <CheckboxField
-            label="자동 재연결"
-            checked={def.reconnectEnabled}
-            onChange={(v) => update({ reconnectEnabled: v })}
-          />
-          {def.reconnectEnabled && (
-            <InputField
-              label="재연결 대기 (초)"
-              type="number"
-              value={def.reconnectDelaySeconds}
-              onChange={(e) => update({ reconnectDelaySeconds: Number(e.target.value) })}
-            />
-          )}
-        </>
+        <InputField
+          label="재연결 대기 (초)"
+          type="number"
+          value={def.reconnectDelaySeconds}
+          onChange={(e) => update({ reconnectDelaySeconds: Number(e.target.value) })}
+        />
       )}
 
       {condition && onConditionChange && (

@@ -107,7 +107,7 @@ class WebSocketClientHandler(
                 log.error("[WebSocket Client] 연결 실패: ${e.message}")
             }
 
-            if (running && definition.reconnectEnabled) {
+            if (running) {
                 log.info("[WebSocket Client] ${definition.reconnectDelaySeconds}초 후 재연결...")
                 delay(definition.reconnectDelaySeconds * 1000L)
             } else {

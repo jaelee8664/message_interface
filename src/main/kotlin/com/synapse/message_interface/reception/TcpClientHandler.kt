@@ -78,7 +78,7 @@ class TcpClientHandler(
                 if (running) log.error("[TCP Client] 연결 실패: ${e.message}")
             }
 
-            if (running && definition.reconnectEnabled) {
+            if (running) {
                 log.info("[TCP Client] ${definition.reconnectDelaySeconds}초 후 재연결...")
                 delay(definition.reconnectDelaySeconds * 1000L)
             } else break

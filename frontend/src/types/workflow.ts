@@ -55,7 +55,6 @@ export interface Node0Definition {
   pingEnabled: boolean
   pingIntervalSeconds: number
   pongTimeoutSeconds: number
-  reconnectEnabled: boolean
   reconnectDelaySeconds: number
   bidirectional: boolean
   tcpIdleTimeoutSeconds?: number
@@ -124,7 +123,6 @@ export interface Node4Definition {
   retryCount?: number
   retryDelaySeconds?: number
   timeoutMs?: number
-  reconnectEnabled?: boolean
   reconnectDelaySeconds?: number
   // MONGO_QUEUE_PUBLISHER 전용
   mongoQueueName?: string

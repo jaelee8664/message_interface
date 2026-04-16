@@ -44,7 +44,7 @@ class GrpcClientRegistry {
     private val requestObservers = ConcurrentHashMap<String, StreamObserver<DynamicMessage>>()
     private val pending         = ConcurrentHashMap<String, CompletableDeferred<StreamObserver<DynamicMessage>>>()
     private val loopRunning     = ConcurrentHashMap.newKeySet<String>()
-    private val reconnectFlags  = ConcurrentHashMap<String, Boolean>()
+    private val stoppedKeys     = ConcurrentHashMap.newKeySet<String>()
     private val reconnectDelays = ConcurrentHashMap<String, Long>()
     private val pingEnabledMap  = ConcurrentHashMap<String, Boolean>()
     private val pingIntervals   = ConcurrentHashMap<String, Long>()
@@ -66,13 +66,12 @@ class GrpcClientRegistry {
         port: Int,
         methodDescriptor: MethodDescriptor<DynamicMessage, DynamicMessage>,
         onMessage: suspend (DynamicMessage) -> Unit,
-        reconnectEnabled: Boolean = true,
         reconnectDelaySeconds: Int = 5,
         pingEnabled: Boolean = false,
         pingIntervalSeconds: Int = 30,
         pongTimeoutSeconds: Int = 10
     ): StreamObserver<DynamicMessage> {
-        reconnectFlags[key] = reconnectEnabled
+        stoppedKeys.remove(key)
         reconnectDelays[key] = reconnectDelaySeconds * 1000L
         pingEnabledMap[key] = pingEnabled
         pingIntervals[key]  = pingIntervalSeconds * 1000L
@@ -111,7 +110,6 @@ class GrpcClientRegistry {
         methodName: String,
         requestDescriptor: Descriptors.Descriptor,
         responseDescriptor: Descriptors.Descriptor,
-        reconnectEnabled: Boolean = true,
         reconnectDelaySeconds: Int = 5
     ) {
         val md = MethodDescriptor.newBuilder<DynamicMessage, DynamicMessage>()
@@ -126,7 +124,6 @@ class GrpcClientRegistry {
             port = port,
             methodDescriptor = md,
             onMessage = { /* Node4 송신 전용: 수신 메시지 무시 */ },
-            reconnectEnabled = reconnectEnabled,
             reconnectDelaySeconds = reconnectDelaySeconds
         )
     }
@@ -145,7 +142,7 @@ class GrpcClientRegistry {
      * 연결 중(CONNECTED) 또는 재연결 대기 중(RECONNECTING) 클라이언트를 모두 포함한다.
      */
     fun getStatus(): Map<String, Boolean> =
-        reconnectFlags.keys.associateWith { requestObservers.containsKey(it) }
+        loopRunning.associateWith { requestObservers.containsKey(it) }
 
     fun isConnected(key: String) = requestObservers.containsKey(key)
 
@@ -154,9 +151,8 @@ class GrpcClientRegistry {
      * Node0 GRPC_CLIENT 핸들러의 stop() 에서 호출.
      */
     fun remove(key: String) {
-        reconnectFlags[key] = false
+        stoppedKeys.add(key)
         reconnectDelays.remove(key)
-        reconnectFlags.remove(key)
         pingEnabledMap.remove(key)
         pingIntervals.remove(key)
         pongTimeouts.remove(key)
@@ -255,7 +251,7 @@ class GrpcClientRegistry {
                     log.warn("[gRPC Client] 연결 실패 (key=$key): ${e.message}")
                 }
 
-                if (reconnectFlags[key] == false) break
+                if (stoppedKeys.contains(key)) break
 
                 // 재연결 대기 구간에도 pending 등록 → getOrConnect 가 새 루프를 만들지 않음
                 val reconnectDeferred = CompletableDeferred<StreamObserver<DynamicMessage>>()
@@ -270,7 +266,7 @@ class GrpcClientRegistry {
             pending.remove(key)?.let { d ->
                 if (!d.isCompleted) {
                     d.completeExceptionally(
-                        IllegalStateException("[gRPC Client] 재연결 비활성화, 루프 종료: $key")
+                        IllegalStateException("[gRPC Client] 연결 중단, 루프 종료: $key")
                     )
                 }
             }

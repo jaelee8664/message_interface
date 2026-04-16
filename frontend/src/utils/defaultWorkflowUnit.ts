@@ -25,7 +25,6 @@ export function createDefaultWorkflowUnit(
         pingEnabled: false,
         pingIntervalSeconds: 30,
         pongTimeoutSeconds: 10,
-        reconnectEnabled: true,
         reconnectDelaySeconds: 5,
         bidirectional: false,
         ...(isMongoQueueConsumer
