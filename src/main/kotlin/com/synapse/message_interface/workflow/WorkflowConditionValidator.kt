@@ -1,6 +1,8 @@
 package com.synapse.message_interface.workflow
 
 import com.synapse.message_interface.domain.ConditionType
+import com.synapse.message_interface.domain.FieldOperator
+import com.synapse.message_interface.domain.KeyOperator
 import com.synapse.message_interface.domain.LogicalOp
 import com.synapse.message_interface.domain.WorkflowCondition
 import org.springframework.stereotype.Component
@@ -132,25 +134,58 @@ class WorkflowConditionValidator {
     }
 
     private fun checkFieldValueIntersection(a: WorkflowCondition, b: WorkflowCondition): ConditionConflict? {
-        if (a.fieldKey == b.fieldKey && a.fieldValue == b.fieldValue) {
-            return ConditionConflict(
-                "${a.fieldKey} == ${a.fieldValue}",
-                "${b.fieldKey} == ${b.fieldValue}",
-                "동일한 필드 값 조건입니다."
-            )
+        if (a.fieldKey != b.fieldKey) return null
+
+        val aOp = a.fieldOperator ?: FieldOperator.EQ
+        val bOp = b.fieldOperator ?: FieldOperator.EQ
+
+        val intersects = when {
+            // EQ vs EQ: 같은 값이면 교집합
+            aOp == FieldOperator.EQ  && bOp == FieldOperator.EQ  -> a.fieldValue == b.fieldValue
+            // EQ vs NEQ: 같은 값이면 상호 배타(교집합 없음), 다른 값이면 교집합
+            aOp == FieldOperator.EQ  && bOp == FieldOperator.NEQ -> a.fieldValue != b.fieldValue
+            aOp == FieldOperator.NEQ && bOp == FieldOperator.EQ  -> a.fieldValue != b.fieldValue
+            // NEQ vs NEQ: 항상 교집합 (두 조건을 모두 만족하는 값이 반드시 존재)
+            else -> true
+        }
+
+        if (!intersects) return null
+
+        val aExpr = fieldExpr(a)
+        val bExpr = fieldExpr(b)
+        val reason = when {
+            aOp == FieldOperator.NEQ && bOp == FieldOperator.NEQ ->
+                "두 != 조건은 항상 교집합이 존재합니다."
+            aOp != bOp ->
+                "${a.fieldKey} 의 == 조건 값이 != 조건 값과 달라 교집합이 발생합니다."
+            else -> "동일한 필드 값 조건입니다."
+        }
+        return ConditionConflict(aExpr, bExpr, reason)
+    }
+
+    private fun fieldExpr(c: WorkflowCondition): String {
+        val op = if ((c.fieldOperator ?: FieldOperator.EQ) == FieldOperator.EQ) "==" else "!="
+        return "${c.fieldKey} $op ${c.fieldValue}"
+    }
+
+    private fun checkContainsKeyIntersection(a: WorkflowCondition, b: WorkflowCondition): ConditionConflict? {
+        if (a.containsKey != b.containsKey) return null
+
+        val aOp = a.containsKeyOperator ?: KeyOperator.EXISTS
+        val bOp = b.containsKeyOperator ?: KeyOperator.EXISTS
+
+        // 같은 키, 같은 연산자 → 교집합
+        // 같은 키, 다른 연산자 (EXISTS vs NOT_EXISTS) → 상호 배타, 교집합 없음
+        if (aOp == bOp) {
+            val expr = keyExpr(a)
+            return ConditionConflict(expr, expr, "동일한 키 ${if (aOp == KeyOperator.EXISTS) "포함" else "미포함"} 조건입니다.")
         }
         return null
     }
 
-    private fun checkContainsKeyIntersection(a: WorkflowCondition, b: WorkflowCondition): ConditionConflict? {
-        if (a.containsKey == b.containsKey) {
-            return ConditionConflict(
-                "containsKey(${a.containsKey})",
-                "containsKey(${b.containsKey})",
-                "동일한 키 포함 조건입니다."
-            )
-        }
-        return null
+    private fun keyExpr(c: WorkflowCondition): String {
+        val op = if ((c.containsKeyOperator ?: KeyOperator.EXISTS) == KeyOperator.EXISTS) "containsKey" else "notContainsKey"
+        return "$op(${c.containsKey})"
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -161,8 +196,8 @@ class WorkflowConditionValidator {
             c.subConditions?.joinToString(op, "(", ")") { exprOf(it) } ?: ""
         }
         c.type == ConditionType.ENDPOINT     -> "endpoint == \"${c.endpointPattern}\""
-        c.type == ConditionType.FIELD_VALUE  -> "${c.fieldKey} == \"${c.fieldValue}\""
-        c.type == ConditionType.CONTAINS_KEY -> "containsKey(${c.containsKey})"
+        c.type == ConditionType.FIELD_VALUE  -> fieldExpr(c)
+        c.type == ConditionType.CONTAINS_KEY -> keyExpr(c)
         else -> ""
     }
 }

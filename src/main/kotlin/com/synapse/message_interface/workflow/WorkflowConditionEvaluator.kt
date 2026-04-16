@@ -1,6 +1,8 @@
 package com.synapse.message_interface.workflow
 
 import com.synapse.message_interface.domain.ConditionType
+import com.synapse.message_interface.domain.FieldOperator
+import com.synapse.message_interface.domain.KeyOperator
 import com.synapse.message_interface.domain.LogicalOp
 import com.synapse.message_interface.domain.WorkflowCondition
 import org.springframework.http.server.PathContainer
@@ -47,11 +49,19 @@ class WorkflowConditionEvaluator {
             }
             ConditionType.FIELD_VALUE -> {
                 val key = condition.fieldKey ?: return false
-                messageFields[key] == condition.fieldValue
+                val actual = messageFields[key]
+                when (condition.fieldOperator ?: FieldOperator.EQ) {
+                    FieldOperator.EQ  -> actual == condition.fieldValue
+                    FieldOperator.NEQ -> actual != condition.fieldValue
+                }
             }
             ConditionType.CONTAINS_KEY -> {
                 val key = condition.containsKey ?: return false
-                messageFields.containsKey(key)
+                val exists = messageFields.containsKey(key)
+                when (condition.containsKeyOperator ?: KeyOperator.EXISTS) {
+                    KeyOperator.EXISTS     -> exists
+                    KeyOperator.NOT_EXISTS -> !exists
+                }
             }
             null -> false
         }

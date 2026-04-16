@@ -32,6 +32,8 @@ export type FieldType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOLEAN' | 'LIST' | 'MAP'
 export type NodeType = 'NODE0' | 'NODE1' | 'NODE2' | 'NODE3' | 'NODE4' | 'NODE5'
 export type ConditionType = 'ENDPOINT' | 'FIELD_VALUE' | 'CONTAINS_KEY'
 export type LogicalOp = 'AND' | 'OR'
+export type FieldOperator = 'EQ' | 'NEQ'
+export type KeyOperator = 'EXISTS' | 'NOT_EXISTS'
 
 export interface FieldDefinition {
   key: string
@@ -230,8 +232,10 @@ export interface WorkflowCondition {
   type?: ConditionType
   endpointPattern?: string
   fieldKey?: string
+  fieldOperator?: FieldOperator
   fieldValue?: string
   containsKey?: string
+  containsKeyOperator?: KeyOperator
   // Composite condition (logicalOp is set, type is undefined)
   logicalOp?: LogicalOp
   subConditions?: WorkflowCondition[]

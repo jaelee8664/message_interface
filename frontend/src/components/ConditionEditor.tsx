@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import axios from 'axios'
-import { WorkflowCondition, ConditionType, LogicalOp, ProtocolType } from '../types/workflow'
+import { WorkflowCondition, ConditionType, FieldOperator, KeyOperator, LogicalOp, ProtocolType } from '../types/workflow'
 import { InputField } from './ui/FormField'
 
 // Protocols that carry no endpoint — ENDPOINT condition type is meaningless for these
@@ -37,8 +37,14 @@ export function buildRawExpression(condition: WorkflowCondition): string {
   }
   switch (condition.type) {
     case 'ENDPOINT':     return `endpoint == "${condition.endpointPattern ?? ''}"`
-    case 'FIELD_VALUE':  return `${condition.fieldKey ?? ''} == "${condition.fieldValue ?? ''}"`
-    case 'CONTAINS_KEY': return `containsKey(${condition.containsKey ?? ''})`
+    case 'FIELD_VALUE': {
+      const op = condition.fieldOperator === 'NEQ' ? '!=' : '=='
+      return `${condition.fieldKey ?? ''} ${op} "${condition.fieldValue ?? ''}"`
+    }
+    case 'CONTAINS_KEY': {
+      const fn = condition.containsKeyOperator === 'NOT_EXISTS' ? 'notContainsKey' : 'containsKey'
+      return `${fn}(${condition.containsKey ?? ''})`
+    }
     default:             return ''
   }
 }
@@ -115,7 +121,22 @@ function LeafConditionEditor({
               placeholder="예: header.name"
             />
           </div>
-          <div className="text-slate-400 pb-2 text-sm">=</div>
+          <div className="flex flex-col gap-1 pb-2">
+            {(['EQ', 'NEQ'] as FieldOperator[]).map((op) => (
+              <button
+                key={op}
+                type="button"
+                onClick={() => update({ fieldOperator: op })}
+                className={`px-2 py-0.5 text-xs rounded border font-mono font-semibold transition-colors ${
+                  (condition.fieldOperator ?? 'EQ') === op
+                    ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                    : 'border-slate-600 bg-slate-800 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                {op === 'EQ' ? '==' : '!='}
+              </button>
+            ))}
+          </div>
           <div className="flex-1">
             <InputField
               label="값"
@@ -127,13 +148,35 @@ function LeafConditionEditor({
         </div>
       )}
       {condition.type === 'CONTAINS_KEY' && (
-        <InputField
-          label="키 이름"
-          value={condition.containsKey ?? ''}
-          onChange={(e) => update({ containsKey: e.target.value })}
-          placeholder="예: header.trace_id"
-          hint="이 키가 메세지에 존재하는지 확인합니다."
-        />
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            {(['EXISTS', 'NOT_EXISTS'] as KeyOperator[]).map((op) => (
+              <button
+                key={op}
+                type="button"
+                onClick={() => update({ containsKeyOperator: op })}
+                className={`flex-1 py-1.5 text-xs rounded border font-semibold transition-colors ${
+                  (condition.containsKeyOperator ?? 'EXISTS') === op
+                    ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                    : 'border-slate-600 bg-slate-800 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                {op === 'EXISTS' ? '키 존재' : '키 미존재'}
+              </button>
+            ))}
+          </div>
+          <InputField
+            label="키 이름"
+            value={condition.containsKey ?? ''}
+            onChange={(e) => update({ containsKey: e.target.value })}
+            placeholder="예: header.trace_id"
+            hint={
+              (condition.containsKeyOperator ?? 'EXISTS') === 'EXISTS'
+                ? '이 키가 메세지에 존재하는지 확인합니다.'
+                : '이 키가 메세지에 존재하지 않는지 확인합니다.'
+            }
+          />
+        </div>
       )}
     </div>
   )
