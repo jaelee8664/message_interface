@@ -189,7 +189,6 @@ function Pagination({ total, page, onChange }: { total: number; page: number; on
 export default function LogPage() {
   const [fieldKey, setFieldKey] = useState('')
   const [fieldValue, setFieldValue] = useState('')
-  const [fromFiles, setFromFiles] = useState(true)
   const [fromDate, setFromDate] = useState(toLocalDateStr(1))
   const [toDate, setToDate] = useState(toLocalDateStr(0))
 
@@ -224,13 +223,12 @@ export default function LogPage() {
   const [page, setPage] = useState(1)
 
   const search = async () => {
-    if (!fieldKey || !fieldValue) return
     setLoading(true)
     setError(null)
     setPage(1)
     try {
       const res = await axios.get('/synapse/logs/trace', {
-        params: { fieldKey, fieldValue, fromFiles, fromDate, toDate }
+        params: { fieldKey, fieldValue, fromDate, toDate }
       })
       setResult(res.data.data)
     } catch (e: any) {
@@ -290,38 +288,48 @@ export default function LogPage() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">파일 검색</label>
-          <label className="flex items-center gap-2 h-9 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={fromFiles}
-              onChange={e => setFromFiles(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <span className="text-sm text-slate-300">파일에서 검색</span>
-          </label>
-        </div>
-        <div className="flex flex-col gap-1">
           <label className="text-xs text-slate-400">&nbsp;</label>
           <button
             onClick={search}
             disabled={loading}
-            className="px-5 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm disabled:opacity-50"
+            className="px-5 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm disabled:opacity-50 flex items-center gap-2"
           >
+            {loading && (
+              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            )}
             {loading ? '검색 중...' : '검색'}
           </button>
         </div>
       </div>
+
+      {loading && (
+        <div className="flex items-center gap-3 mb-4 text-sm text-slate-400">
+          <svg className="animate-spin h-4 w-4 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          로그 파일을 검색하는 중입니다...
+        </div>
+      )}
 
       {error && <div className="text-red-400 mb-4 text-sm">{error}</div>}
 
       {/* Result header */}
       {result && (
         <div className="text-sm text-slate-400 mb-4">
-          <span className="text-white font-mono">{result.fieldKey}</span>
-          {' = '}
-          <span className="text-blue-400 font-mono">"{result.fieldValue}"</span>
-          {' — '}
+          {result.fieldKey && result.fieldValue ? (
+            <>
+              <span className="text-white font-mono">{result.fieldKey}</span>
+              {' = '}
+              <span className="text-blue-400 font-mono">"{result.fieldValue}"</span>
+              {' — '}
+            </>
+          ) : (
+            <span className="text-slate-500">필터 없음 (최근 {traces.length}건) — </span>
+          )}
           <span className="text-white">{traces.length}건</span>
           {traces.length > PAGE_SIZE && (
             <span className="text-slate-500 ml-2">
@@ -333,7 +341,9 @@ export default function LogPage() {
 
       {/* Trace list */}
       {traces.length === 0 && !loading && result && (
-        <div className="text-slate-500 text-center py-12">결과 없음</div>
+        <div className="text-slate-500 text-center py-12">
+          {result.fieldKey || result.fieldValue ? '조건에 맞는 메세지 없음' : '해당 날짜 범위에 로그 없음'}
+        </div>
       )}
       {pageTraces.map((trace, i) => (
         <TraceCard key={i} trace={trace} />

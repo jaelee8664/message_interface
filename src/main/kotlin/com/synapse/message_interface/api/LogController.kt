@@ -32,8 +32,8 @@ class LogController(private val logger: MessageTraceLogger) {
      */
     @GetMapping("/trace")
     suspend fun trace(
-        @RequestParam fieldKey: String,
-        @RequestParam fieldValue: String,
+        @RequestParam(required = false, defaultValue = "") fieldKey: String,
+        @RequestParam(required = false, defaultValue = "") fieldValue: String,
         @RequestParam(defaultValue = "true") fromFiles: Boolean,
         @RequestParam(defaultValue = "7") days: Int,
         @RequestParam(required = false) fromDate: String?,

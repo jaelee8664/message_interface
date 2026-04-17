@@ -124,18 +124,27 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         val from = fromDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now().minusDays(days.toLong())
         val to = toDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now()
 
-        // Pass 1: find matching traceIds (file scan without storing all logs)
-        // Pass 2: collect only logs belonging to matched traceIds
+        val noFilter = fieldKey.isBlank() && fieldValue.isBlank()
+
         val grouped = if (fromFiles) {
-            val matchedTraceIds = collectMatchedTraceIds(from, to, fieldKey, fieldValue)
+            val matchedTraceIds = if (noFilter) {
+                // Single-pass with early exit — stop once maxTraces unique traceIds are collected
+                collectFirstNTraceIds(from, to, maxTraces)
+            } else {
+                collectMatchedTraceIds(from, to, fieldKey, fieldValue)
+            }
             if (matchedTraceIds.isEmpty()) return@withContext TraceSearchResult(fieldKey, fieldValue, emptyList())
             collectLogsByTraceIds(from, to, matchedTraceIds)
         } else {
             val allLogs = synchronized(lock) { recentLogs.toList() }
-            val matchedTraceIds = allLogs
-                .filter { log -> matchesField(log.messageSnippet, fieldKey, fieldValue) }
-                .map { it.traceId }
-                .toSet()
+            val matchedTraceIds = if (noFilter) {
+                allLogs.map { it.traceId }.distinct().take(maxTraces).toSet()
+            } else {
+                allLogs
+                    .filter { log -> matchesField(log.messageSnippet, fieldKey, fieldValue) }
+                    .map { it.traceId }
+                    .toSet()
+            }
             allLogs.filter { it.traceId in matchedTraceIds }
         }
             .groupBy { it.traceId }
@@ -283,6 +292,22 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
                 }.getOrDefault(false)
             }
             .sortedByDescending { it.name }
+
+    /** Single-pass: collect the first [maxCount] unique traceIds from the date range — exits early once limit is reached. */
+    private fun collectFirstNTraceIds(fromDate: LocalDate, toDate: LocalDate, maxCount: Int): Set<String> {
+        val traceIds = LinkedHashSet<String>()
+        for (file in targetFiles(fromDate, toDate)) {
+            if (traceIds.size >= maxCount) break
+            file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                for (line in reader.lineSequence()) {
+                    if (traceIds.size >= maxCount) break
+                    runCatching { objectMapper.readValue(line, TraceLog::class.java) }
+                        .onSuccess { traceIds.add(it.traceId) }
+                }
+            }
+        }
+        return traceIds
+    }
 
     /** Pass 1: scan files and collect only traceIds where fieldKey == fieldValue. */
     private fun collectMatchedTraceIds(

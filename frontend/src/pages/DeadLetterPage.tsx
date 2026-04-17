@@ -308,14 +308,26 @@ export default function DeadLetterPage() {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => handleFromFilesChange(!fromFiles)}
-            className={`text-xs px-3 py-1 rounded border ${fromFiles
-              ? 'border-blue-500 text-blue-400 bg-blue-950/40'
-              : 'border-slate-600 text-slate-400 bg-slate-800'}`}
-          >
-            {fromFiles ? '파일 검색' : '메모리'}
-          </button>
+          <div className="flex items-center gap-1 text-xs text-slate-400">
+            <button
+              onClick={() => handleFromFilesChange(false)}
+              title="서버 재시작 전까지 보관된 최근 1,000건을 빠르게 조회합니다"
+              className={`px-2 py-1 rounded ${!fromFiles
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            >
+              메모리
+            </button>
+            <button
+              onClick={() => handleFromFilesChange(true)}
+              title="디스크에 저장된 파일을 탐색합니다. 서버 재시작 후에도 조회 가능하며 최대 30일치를 볼 수 있습니다"
+              className={`px-2 py-1 rounded ${fromFiles
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            >
+              파일
+            </button>
+          </div>
           <button
             onClick={() => fetchEntries()}
             disabled={loading}
@@ -334,6 +346,11 @@ export default function DeadLetterPage() {
         {entries.length > 0 && (
           <span className="text-xs text-slate-500">최근: {formatTime(entries[0].timestamp)}</span>
         )}
+        <span className="text-xs text-slate-600">
+          {fromFiles
+            ? '파일 검색 — 디스크에서 조회 (서버 재시작 후에도 유지)'
+            : '메모리 검색 — 최근 1,000건, 서버 재시작 시 초기화'}
+        </span>
       </div>
 
       {error && (
