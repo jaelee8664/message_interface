@@ -3,6 +3,8 @@ package com.synapse.message_interface.api
 import com.synapse.message_interface.api.dto.*
 import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.config.WorkflowPersistenceConfig
+import com.synapse.message_interface.domain.NodeType
+import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.WorkflowTree
 import com.synapse.message_interface.reception.ReceptionManager
 import com.synapse.message_interface.workflow.WorkflowConditionValidator
@@ -56,9 +58,14 @@ class WorkflowController(
             ))
         }
 
-        // Validate condition no intersection
+        // Validate condition no intersection — only compare units with the same NODE0 protocol
+        val newProtocol = req.unit.nodes.find { it.nodeType == NodeType.NODE0 }?.node0?.protocol
         val existingConditions = registry.getAll()
             .filter { it.id != req.unit.id }
+            .filter { unit ->
+                val p = unit.nodes.find { it.nodeType == NodeType.NODE0 }?.node0?.protocol
+                newProtocol == null || p == null || p == newProtocol
+            }
             .map { it.condition }
         val conflicts = conditionValidator.validateNoIntersection(req.unit.condition, existingConditions)
         if (conflicts.isNotEmpty()) {
@@ -93,6 +100,10 @@ class WorkflowController(
     fun validateCondition(@RequestBody req: ValidateConditionRequest): ResponseEntity<ApiResponse<*>> {
         val existingConditions = registry.getAll()
             .filter { it.id != req.unitId }
+            .filter { unit ->
+                val p = unit.nodes.find { it.nodeType == NodeType.NODE0 }?.node0?.protocol
+                req.protocol == null || p == null || p == req.protocol
+            }
             .map { it.condition }
         val conflicts = conditionValidator.validateNoIntersection(req.condition, existingConditions)
         return if (conflicts.isEmpty()) {

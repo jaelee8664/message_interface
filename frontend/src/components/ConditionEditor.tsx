@@ -357,7 +357,7 @@ export default function ConditionEditor({ condition, onChange, unitId, showValid
     setValidating(true)
     setValidationResult(null)
     try {
-      const res = await axios.post('/synapse/workflow/condition/validate', { unitId: unitId ?? null, condition })
+      const res = await axios.post('/synapse/workflow/condition/validate', { unitId: unitId ?? null, condition, protocol: protocol ?? null })
       setValidationResult(res.data.data)
     } catch (e: any) {
       setValidationResult({ valid: false, conflicts: [{ existing: '', new: '', reason: e.message }] })

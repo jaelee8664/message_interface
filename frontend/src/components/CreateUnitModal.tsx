@@ -84,6 +84,7 @@ export default function CreateUnitModal({ onClose }: Props) {
       const res = await axios.post('/synapse/workflow/condition/validate', {
         unitId: null,
         condition,
+        protocol,
       })
       const result = res.data.data
       if (!result.valid) {
