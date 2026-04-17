@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import {
   Node5Definition,
-  Node5ResponseType,
   Node5SuccessConfig,
   MessageFormat,
   NodeErrorField,
@@ -57,14 +56,6 @@ const SUCCESS_SOURCE_OPTIONS: { value: NodeErrorFieldSource; label: string }[] =
   { value: 'FROM_MAP', label: '맵에서' },
 ]
 
-const RESPONSE_TYPE_OPTIONS: { value: Node5ResponseType; label: string; description: string }[] = [
-  {
-    value: 'HTTP_RESPONSE',
-    label: 'HTTP 응답',
-    description: 'REST 클라이언트에게 HTTP 상태 코드 + body를 반환합니다.',
-  },
-]
-
 // ── Success field preview ─────────────────────────────────────────────────────
 
 function buildSuccessPreviewJson(fields: NodeErrorField[]): string {
@@ -114,11 +105,9 @@ function SuccessFieldPreview({ fields }: { fields: NodeErrorField[] }) {
 
 function SuccessConfigEditor({
   config,
-  responseType,
   onChange,
 }: {
   config: Node5SuccessConfig
-  responseType: Node5ResponseType
   onChange: (c: Node5SuccessConfig) => void
 }) {
   const update = (partial: Partial<Node5SuccessConfig>) => onChange({ ...config, ...partial })
@@ -138,36 +127,34 @@ function SuccessConfigEditor({
 
   return (
     <div className="space-y-3">
-      {/* HTTP Status — only shown for HTTP_RESPONSE */}
-      {responseType === 'HTTP_RESPONSE' && (
-        <div className="space-y-1">
-          <label className="block text-xs font-medium text-slate-300">HTTP 상태 코드</label>
-          <div className="flex gap-2">
-            <select
-              className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
-              value={isCustomStatus ? 'custom' : config.httpStatus}
-              onChange={(e) => {
-                if (e.target.value !== 'custom') update({ httpStatus: Number(e.target.value) })
-              }}
-            >
-              {COMMON_HTTP_STATUS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-              <option value="custom">직접 입력…</option>
-            </select>
-            {isCustomStatus && (
-              <input
-                type="number"
-                className="w-24 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
-                value={config.httpStatus}
-                onChange={(e) => update({ httpStatus: Number(e.target.value) })}
-                min={100}
-                max={599}
-              />
-            )}
-          </div>
+      {/* HTTP Status */}
+      <div className="space-y-1">
+        <label className="block text-xs font-medium text-slate-300">HTTP 상태 코드</label>
+        <div className="flex gap-2">
+          <select
+            className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+            value={isCustomStatus ? 'custom' : config.httpStatus}
+            onChange={(e) => {
+              if (e.target.value !== 'custom') update({ httpStatus: Number(e.target.value) })
+            }}
+          >
+            {COMMON_HTTP_STATUS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+            <option value="custom">직접 입력…</option>
+          </select>
+          {isCustomStatus && (
+            <input
+              type="number"
+              className="w-24 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+              value={config.httpStatus}
+              onChange={(e) => update({ httpStatus: Number(e.target.value) })}
+              min={100}
+              max={599}
+            />
+          )}
         </div>
-      )}
+      </div>
 
       {/* Format */}
       <div className="space-y-1">
@@ -286,44 +273,6 @@ function SuccessConfigEditor({
   )
 }
 
-// ── Response type selector ────────────────────────────────────────────────────
-
-function ResponseTypeSelector({
-  value,
-  onChange,
-}: {
-  value: Node5ResponseType
-  onChange: (t: Node5ResponseType) => void
-}) {
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs font-medium text-slate-300">응답 방식</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {RESPONSE_TYPE_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => onChange(opt.value)}
-            className={`px-3 py-2 rounded text-xs text-left transition-colors border ${
-              value === opt.value
-                ? 'bg-cyan-900/60 border-cyan-600 text-cyan-200'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
-            }`}
-          >
-            <div className="font-medium">{opt.label}</div>
-          </button>
-        ))}
-      </div>
-      {/* Description for selected type */}
-      {(() => {
-        const selected = RESPONSE_TYPE_OPTIONS.find((o) => o.value === value)
-        return selected ? (
-          <p className="text-xs text-slate-500 leading-relaxed">{selected.description}</p>
-        ) : null
-      })()}
-    </div>
-  )
-}
-
 // ── Root panel ────────────────────────────────────────────────────────────────
 
 export default function Node5Panel({ definition, onChange }: Props) {
@@ -348,12 +297,6 @@ export default function Node5Panel({ definition, onChange }: Props) {
           </p>
         </div>
       </div>
-
-      {/* Response type selector */}
-      <ResponseTypeSelector
-        value={def.responseType}
-        onChange={(t) => update({ responseType: t })}
-      />
 
       {/* Tab switcher */}
       <div className="flex rounded overflow-hidden border border-slate-700">
@@ -382,7 +325,6 @@ export default function Node5Panel({ definition, onChange }: Props) {
       {tab === 'success' ? (
         <SuccessConfigEditor
           config={def.successConfig}
-          responseType={def.responseType}
           onChange={(c) => update({ successConfig: c })}
         />
       ) : (
