@@ -4,6 +4,7 @@ import { ProtocolType, WorkflowUnit } from '../types/workflow'
 import { useResizablePanel } from '../hooks/useResizablePanel'
 import CreateUnitModal from './CreateUnitModal'
 import ManualModal from './ManualModal'
+import ImportUnitModal from './ImportUnitModal'
 
 const PROTOCOL_LABEL: Record<ProtocolType, string> = {
   WEBSOCKET_SERVER: 'WS Server',
@@ -58,6 +59,7 @@ export default function WorkflowUnitList() {
   const [manualMode, setManualMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showManualModal, setShowManualModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -76,6 +78,18 @@ export default function WorkflowUnitList() {
   const filtered = (units ?? []).filter((u) =>
     u.name.toLowerCase().includes(search.toLowerCase())
   )
+
+  const handleExport = (unit: WorkflowUnit, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const { id: _id, ...exportData } = unit
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${unit.name}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const handleDeleteConfirm = async () => {
     if (!deletingId || !deleteBy || !deletePassword) return
@@ -185,13 +199,22 @@ export default function WorkflowUnitList() {
                 </div>
               </button>
               {!manualMode && (
-                <button
-                  onClick={() => { setDeletingId(unit.id); setDeleteError(null) }}
-                  className="px-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-opacity"
-                  title="삭제"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center">
+                  <button
+                    onClick={(e) => handleExport(unit, e)}
+                    className="px-2 text-slate-500 hover:text-blue-400"
+                    title="JSON으로 내보내기"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() => { setDeletingId(unit.id); setDeleteError(null) }}
+                    className="px-2 text-slate-500 hover:text-red-400"
+                    title="삭제"
+                  >
+                    ✕
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -224,18 +247,29 @@ export default function WorkflowUnitList() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="w-full py-2 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white font-medium"
-            >
-              + 새 워크플로우 단위
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="w-full py-2 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white font-medium"
+              >
+                + 새 워크플로우 단위
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="w-full py-2 text-sm rounded bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white"
+              >
+                ↑ JSON 가져오기
+              </button>
+            </div>
           )}
         </div>
       </div>
 
       {/* Create unit modal */}
       {showCreateModal && <CreateUnitModal onClose={() => setShowCreateModal(false)} />}
+
+      {/* Import unit modal */}
+      {showImportModal && <ImportUnitModal onClose={() => setShowImportModal(false)} />}
 
       {/* Manual modal */}
       {showManualModal && (
