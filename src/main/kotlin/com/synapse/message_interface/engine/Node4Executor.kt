@@ -195,7 +195,7 @@ class Node4Executor(
                 webSocketSessionRegistry.sendByIp(target, data).awaitFirstOrNull()
             }
         } catch (e: Exception) {
-            log.warn("[Node4] WebSocket 세션 송신 실패 (target=$target): ${e.message}")
+            throw Node4SendException("WebSocket 세션 송신 실패 (target=$target): ${e.message}", e)
         }
     }
 
@@ -238,7 +238,7 @@ class Node4Executor(
                 tcpServerSessionRegistry.sendByIp(target, data)
             }
         } catch (e: Exception) {
-            log.warn("[Node4] TCP Server 세션 송신 실패 (target=$target): ${e.message}")
+            throw Node4SendException("TCP Server 세션 송신 실패 (target=$target): ${e.message}", e)
         }
     }
 
