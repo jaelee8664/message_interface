@@ -3,6 +3,7 @@ import PipelineTraceView from '../components/simulator/PipelineTraceView'
 import type { SimulationNodeTrace } from '../components/simulator/PipelineTraceView'
 import PipelineMiniMap from '../components/simulator/PipelineMiniMap'
 import type { RawNode, RawEdge } from '../components/simulator/PipelineMiniMap'
+import ImportScenarioModal from '../components/simulator/ImportScenarioModal'
 import { authFetch } from '../utils/authFetch'
 import { useAuthStore } from '../store/authStore'
 
@@ -681,6 +682,8 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
   const [isNew, setIsNew] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  const [showImportModal, setShowImportModal] = useState(false)
+
   // Run state
   const [running, setRunning] = useState(false)
   const [stepStatuses, setStepStatuses] = useState<Record<number, StepRunStatus>>({})
@@ -744,6 +747,28 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
     await authFetch(`/synapse/simulator/scenarios/${selectedId}`, { method: 'DELETE' })
     newScenario()
     await fetchScenarios()
+  }
+
+  function exportScenario(s: SimulationScenario) {
+    const json = JSON.stringify(s, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${s.name || 'scenario'}.scenario.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportAllScenarios() {
+    const json = JSON.stringify(scenarios, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'scenarios.json'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   // ── Sequential client-side execution ────────────────────────────────────────
@@ -826,22 +851,52 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
       {/* Scenario list */}
       <div className="w-52 shrink-0 flex flex-col gap-1 overflow-y-auto">
         <button
-          className="w-full py-1.5 px-3 rounded bg-blue-700 hover:bg-blue-600 text-white text-xs font-medium mb-1"
+          className="w-full py-1.5 px-3 rounded bg-blue-700 hover:bg-blue-600 text-white text-xs font-medium"
           onClick={newScenario}
         >
           + 새 시나리오
         </button>
-        {scenarios.map(s => (
+        <div className="flex gap-1 mb-1">
           <button
-            key={s.id}
-            className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
-              selectedId === s.id ? 'bg-slate-600 text-white' : 'text-slate-300 hover:bg-slate-700'
-            }`}
-            onClick={() => selectScenario(s)}
+            className="flex-1 py-1 px-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs"
+            onClick={() => setShowImportModal(true)}
+            title="JSON 파일에서 시나리오 가져오기"
           >
-            <div className="font-medium truncate">{s.name || '(이름 없음)'}</div>
-            <div className="text-xs text-slate-500">{s.steps.length}단계</div>
+            가져오기
           </button>
+          <button
+            className="flex-1 py-1 px-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs disabled:opacity-40"
+            onClick={exportAllScenarios}
+            disabled={scenarios.length === 0}
+            title="전체 시나리오를 JSON으로 내보내기"
+          >
+            전체 내보내기
+          </button>
+        </div>
+        {scenarios.map(s => (
+          <div
+            key={s.id}
+            className={`w-full flex items-center rounded text-sm transition-colors ${
+              selectedId === s.id ? 'bg-slate-600' : 'hover:bg-slate-700'
+            }`}
+          >
+            <button
+              className="flex-1 text-left px-3 py-2"
+              onClick={() => selectScenario(s)}
+            >
+              <div className={`font-medium truncate ${selectedId === s.id ? 'text-white' : 'text-slate-300'}`}>
+                {s.name || '(이름 없음)'}
+              </div>
+              <div className="text-xs text-slate-500">{s.steps.length}단계</div>
+            </button>
+            <button
+              className="px-2 py-1 text-base text-slate-400 hover:text-white hover:bg-slate-500 rounded transition-colors"
+              onClick={(e) => { e.stopPropagation(); exportScenario(s) }}
+              title="이 시나리오를 JSON으로 내보내기"
+            >
+              ↓
+            </button>
+          </div>
         ))}
       </div>
 
@@ -971,6 +1026,14 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
           </div>
         )}
       </div>
+
+      {showImportModal && (
+        <ImportScenarioModal
+          existingNames={scenarios.map(s => s.name)}
+          onImported={fetchScenarios}
+          onClose={() => setShowImportModal(false)}
+        />
+      )}
     </div>
   )
 }
@@ -1432,6 +1495,22 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
             })}
           </div>
         )}
+
+        {/* 다른 서버 로그 사용 안내 */}
+        <div className="mt-auto pt-3 border-t border-slate-700 rounded-lg bg-slate-800 p-3">
+          <div className="text-xs font-semibold text-slate-200 mb-2">다른 서버의 로그로 테스트하려면?</div>
+          <ol className="text-xs text-slate-300 leading-relaxed space-y-1.5 list-decimal list-inside">
+            <li>원본 서버의 로그 디렉토리에서 원하는 날짜의 <span className="font-mono text-slate-200">.jsonl</span> 파일을 복사합니다.</li>
+            <li>이 서버의 로그 디렉토리에 붙여넣습니다.</li>
+            <li>조회 기간을 원본 로그의 날짜로 맞춰 조회하면 됩니다.</li>
+          </ol>
+          <p className="text-xs text-slate-400 mt-2">
+            * 로그 디렉토리는 기준정보에서 확인할 수 있습니다.
+          </p>
+          <p className="text-xs text-slate-400">
+            * 유닛 필터로 검색이 안 된다면, 원본 서버의 워크플로우 유닛을 JSON으로 내보낸 뒤 이 서버에서 가져오기하면 해결됩니다.
+          </p>
+        </div>
       </div>
 
       {/* Right: logs + results */}

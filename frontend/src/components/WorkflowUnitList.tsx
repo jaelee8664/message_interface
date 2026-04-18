@@ -81,8 +81,7 @@ export default function WorkflowUnitList() {
 
   const handleExport = (unit: WorkflowUnit, e: React.MouseEvent) => {
     e.stopPropagation()
-    const { id: _id, ...exportData } = unit
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(unit, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
