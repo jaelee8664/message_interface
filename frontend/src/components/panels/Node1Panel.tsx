@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Node1Definition, FieldDefinition, FieldType, MessageFormat, ProtoFieldDef, ProtoMessageDef } from '../../types/workflow'
+import { Node1Definition, FieldDefinition, FieldType, MessageFormat, ProtoFieldDef, ProtoMessageDef, VariableExtraction } from '../../types/workflow'
 import { SelectField, CheckboxField, InputField } from '../ui/FormField'
 import FieldStructurePreview from '../ui/FieldStructurePreview'
 import ProtoSchemaEditor from './ProtoSchemaEditor'
+import { VariableExtractionSection } from '../ui/VariableExtractionSection'
 
 // ── Sample parser helpers ──────────────────────────────────────────────────────
 
@@ -778,6 +779,13 @@ export default function Node1Panel({ definition, onChange, isGrpc = false }: Pro
         fields={def.fields}
         customDtos={def.customDtos}
         rootName="Message"
+      />
+
+      {/* ── Variable extractions ── */}
+      <div className="border-t border-slate-700" />
+      <VariableExtractionSection
+        extractions={def.variableExtractions ?? []}
+        onChange={(extractions) => onChange({ ...def, variableExtractions: extractions })}
       />
     </div>
   )

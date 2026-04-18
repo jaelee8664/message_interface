@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { authFetch } from '../../utils/authFetch'
 import type { SimulationNodeTrace } from './PipelineTraceView'
 
 export interface UnitSimulationResult {
@@ -60,7 +61,7 @@ export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult,
   // unitId가 바뀌면 저장된 테스트 메세지 불러오기
   useEffect(() => {
     if (!unitId) return
-    fetch(`/synapse/simulator/unit-message/${unitId}`)
+    authFetch(`/synapse/simulator/unit-message/${unitId}`)
       .then(r => {
         if (!r.ok) {
           setMessage('{}')
@@ -173,7 +174,7 @@ export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult,
     setRunning(true)
     onResult(null)
     try {
-      const res = await fetch('/synapse/simulator/enqueue-and-consume', {
+      const res = await authFetch('/synapse/simulator/enqueue-and-consume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ unitId, payload: message }),
@@ -204,7 +205,7 @@ export default function SimTestDrawer({ unitId, node4Nodes, node0Info, onResult,
           ])
       )
 
-      const res = await fetch('/synapse/simulator/execute', {
+      const res = await authFetch('/synapse/simulator/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

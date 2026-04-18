@@ -55,16 +55,17 @@ class Node4Executor(
      */
     suspend fun execute(data: Map<String, Any?>, definition: Node4Definition, context: MessageContext): ByteArray? {
         val mongoMessageId = context.traceId
+        val def = definition.resolveSessionVars(context.sessionVars)
 
-        return withRetry(definition.retryCount, definition.retryDelaySeconds, definition.timeoutMs) {
-            if (definition.protocol == ProtocolType.GRPC_SERVER ||
-                definition.protocol == ProtocolType.GRPC_CLIENT) {
-                sendViaGrpc(data, definition, context)
+        return withRetry(def.retryCount, def.retryDelaySeconds, def.timeoutMs) {
+            if (def.protocol == ProtocolType.GRPC_SERVER ||
+                def.protocol == ProtocolType.GRPC_CLIENT) {
+                sendViaGrpc(data, def, context)
                 null
             } else {
-                val serialized = parserRegistry.getParser(definition.messageFormat)
-                    .serialize(data, definition.xmlRootElement)
-                sendByProtocol(serialized, definition, context, mongoMessageId)
+                val serialized = parserRegistry.getParser(def.messageFormat)
+                    .serialize(data, def.xmlRootElement)
+                sendByProtocol(serialized, def, context, mongoMessageId)
             }
         }
     }
@@ -359,4 +360,17 @@ class Node4Executor(
         return "http://$h$p$pa"
     }
 
+}
+
+private val TEMPLATE_REGEX = Regex("""\$\{(\w+)\}""")
+
+private fun String.resolveVars(vars: Map<String, String>): String =
+    TEMPLATE_REGEX.replace(this) { vars[it.groupValues[1]] ?: it.value }
+
+private fun Node4Definition.resolveSessionVars(vars: Map<String, String>): Node4Definition {
+    if (vars.isEmpty()) return this
+    // targetHostExpr 우선, 없으면 targetHost 자체의 ${...} 치환
+    val resolvedHost = (targetHostExpr ?: targetHost)?.resolveVars(vars)
+    val resolvedPort = targetPortExpr?.resolveVars(vars)?.toIntOrNull() ?: targetPort
+    return copy(targetHost = resolvedHost, targetPort = resolvedPort)
 }

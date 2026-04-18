@@ -6,7 +6,8 @@ import com.synapse.message_interface.domain.MessageFormat
 enum class NodeErrorFieldSource {
     LITERAL,            // [value] is used verbatim as a fixed string
     FROM_MAP,           // [value] is a key into state.currentMap at the time of the error
-    EXCEPTION_MESSAGE   // exception.message is injected (value is ignored)
+    EXCEPTION_MESSAGE,  // exception.message is injected (value is ignored)
+    FROM_SESSION_VAR,   // [value] is a key into context.sessionVars (세션 변수)
 }
 
 /**

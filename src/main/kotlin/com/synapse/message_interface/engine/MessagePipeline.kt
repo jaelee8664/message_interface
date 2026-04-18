@@ -8,6 +8,7 @@ import com.synapse.message_interface.domain.WorkflowNode
 import com.synapse.message_interface.domain.WorkflowUnit
 import com.synapse.message_interface.domain.node.Node4Definition
 import com.synapse.message_interface.domain.node.NodeErrorResponse
+import com.synapse.message_interface.domain.node.VariableExtraction
 import com.synapse.message_interface.log.MessageTraceLogger
 import com.synapse.message_interface.log.TraceLog
 import com.synapse.message_interface.log.TraceStatus
@@ -98,7 +99,7 @@ class MessagePipeline(
                     nodeEx?.failedNode?.errorResponse ?: node5.node5!!.defaultErrorConfig
                 val originalEx: Exception = nodeEx?.originalException ?: e
 
-                val errorResult = node5Executor.executeError(state.currentMap, errorResponse, originalEx)
+                val errorResult = node5Executor.executeError(state.currentMap, errorResponse, originalEx, context.sessionVars)
                 if (errorResult.outputMap != null) {
                     logError(context, unit.id, unit.name, NodeType.NODE5, originalEx, errorResult.outputMap)
                 }
@@ -165,6 +166,7 @@ class MessagePipeline(
                     try {
                         val preParsed = if (state.currentMap.isEmpty()) context.parsedMessage else null
                         state.currentMap = node1Executor.execute(state.rawBytes, node.node1, preParsed)
+                        extractSessionVars(node.node1.variableExtractions, state.currentMap, context)
                         traceCollector?.record(SimulationNodeTrace(
                             nodeId = node.id,
                             nodeType = node.nodeType.name,
@@ -195,6 +197,7 @@ class MessagePipeline(
                     val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
                         state.currentMap = node2Executor.execute(state.currentMap, node.node2)
+                        extractSessionVars(node.node2.variableExtractions, state.currentMap, context)
                         traceCollector?.record(SimulationNodeTrace(
                             nodeId = node.id,
                             nodeType = node.nodeType.name,
@@ -291,7 +294,7 @@ class MessagePipeline(
                     val inputSnapshot = traceCollector?.let { state.currentMap.toMap() }
                     val startMs = traceCollector?.let { System.currentTimeMillis() } ?: 0L
                     try {
-                        val result = node5Executor.executeSuccess(state.currentMap, node.node5)
+                        val result = node5Executor.executeSuccess(state.currentMap, node.node5, context.sessionVars)
                         if (result.body != null && result.outputMap != null &&
                             context.protocol == ProtocolType.REST_SERVER.name) {
                             logSuccess(context, unit.id, unit.name, node.nodeType, result.outputMap)
@@ -353,6 +356,19 @@ class MessagePipeline(
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun extractSessionVars(
+        extractions: List<VariableExtraction>,
+        currentMap: Map<String, Any?>,
+        context: MessageContext
+    ) {
+        for (extraction in extractions) {
+            val value = FlatMessageAccessor.get(currentMap, extraction.fieldPath)
+            if (value != null && value != fieldStatus.NOKEY) {
+                context.sessionVars[extraction.variableName] = value.toString()
+            }
+        }
+    }
 
     private fun wrapAndLog(e: Exception, node: WorkflowNode, context: MessageContext, unitId: String, unitName: String): NodeException {
         val reported = if (!node.customErrorMessage.isNullOrBlank()) RuntimeException(node.customErrorMessage, e) else e

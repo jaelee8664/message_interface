@@ -68,6 +68,11 @@ export interface Node0Definition {
   grpcMethodName?: string
 }
 
+export interface VariableExtraction {
+  fieldPath: string      // dot-notation: "header.srcIp"
+  variableName: string   // 저장할 이름: "SRC_IP"
+}
+
 export interface Node1Definition {
   messageFormat: MessageFormat
   fields: FieldDefinition[]
@@ -75,6 +80,7 @@ export interface Node1Definition {
   // gRPC 전용: proto 스키마 (messageFormat == 'PROTOBUF' 일 때 사용)
   protoSchema?: ProtoFieldDef[]
   protoMessages?: ProtoMessageDef[]   // 중첩 MESSAGE 타입 정의
+  variableExtractions?: VariableExtraction[]
 }
 
 export interface ValueReplaceRule { key: string; matchValue: string; afterValue: string }
@@ -85,6 +91,7 @@ export interface Node2Definition {
   valueReplaceRules: ValueReplaceRule[]
   typeConvertRules: TypeConvertRule[]
   customCodeRules: CustomCodeRule[]
+  variableExtractions?: VariableExtraction[]
 }
 
 export type ListAddItemType = 'FIXED' | 'FIELD_REF' | 'EXPR'
@@ -135,6 +142,9 @@ export interface Node4Definition {
   grpcMethodName?: string
   protoSchema?: ProtoFieldDef[]
   protoMessages?: ProtoMessageDef[]   // 중첩 MESSAGE 타입 정의
+  // 세션 변수 템플릿: ${VAR_NAME} 형식으로 런타임 치환
+  targetHostExpr?: string   // targetHost 대신 사용 (변수 참조 시)
+  targetPortExpr?: string   // targetPort 대신 사용 (변수 참조 시)
 }
 
 // ── NODE5 – Response node ─────────────────────────────────────────────────────
@@ -168,7 +178,7 @@ export interface Node5SuccessConfig {
 // ── Per-node error response ───────────────────────────────────────────────────
 
 /** Where the runtime value for an error response field comes from. */
-export type NodeErrorFieldSource = 'LITERAL' | 'FROM_MAP' | 'EXCEPTION_MESSAGE'
+export type NodeErrorFieldSource = 'LITERAL' | 'FROM_MAP' | 'EXCEPTION_MESSAGE' | 'FROM_SESSION_VAR'
 
 /**
  * A single field in the error response body.

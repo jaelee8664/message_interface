@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { MessageFormat, NodeErrorField, NodeErrorFieldSource, NodeErrorResponse } from '../../types/workflow'
+import { SessionVar, SessionVarSelect } from '../ui/SessionVarPicker'
 
 const DEFAULT_ERROR_RESPONSE: NodeErrorResponse = {
   messageFormat: 'JSON',
@@ -14,6 +15,7 @@ const FORMAT_OPTIONS: { value: MessageFormat; label: string }[] = [
 const SOURCE_OPTIONS: { value: NodeErrorFieldSource; label: string }[] = [
   { value: 'LITERAL', label: '리터럴' },
   { value: 'FROM_MAP', label: '맵에서' },
+  { value: 'FROM_SESSION_VAR', label: '세션 변수' },
   { value: 'EXCEPTION_MESSAGE', label: '예외 메세지' },
 ]
 
@@ -28,6 +30,8 @@ function buildPreviewLines(fields: NodeErrorField[]): string {
         ? `"${f.value}"`
         : f.source === 'FROM_MAP'
         ? `"(currentMap["${f.value}"])"`
+        : f.source === 'FROM_SESSION_VAR'
+        ? `"(sessionVars["${f.value}"])"`
         : '"(예외 메세지)"'
     lines.push(`  "${f.key}": ${valueStr}${comma}`)
   })
@@ -38,9 +42,11 @@ function buildPreviewLines(fields: NodeErrorField[]): string {
 export function NodeErrorResponseEditor({
   value,
   onChange,
+  sessionVars = [],
 }: {
   value: NodeErrorResponse
   onChange: (r: NodeErrorResponse) => void
+  sessionVars?: SessionVar[]
 }) {
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -117,20 +123,21 @@ export function NodeErrorResponseEditor({
                 ✕
               </button>
             </div>
-            {field.source !== 'EXCEPTION_MESSAGE' && (
+            {field.source === 'FROM_SESSION_VAR' ? (
+              <SessionVarSelect
+                sessionVars={sessionVars}
+                value={field.value}
+                onChange={(v) => updateField(idx, { value: v })}
+              />
+            ) : field.source !== 'EXCEPTION_MESSAGE' ? (
               <input
                 type="text"
                 className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 value={field.value}
                 onChange={(e) => updateField(idx, { value: e.target.value })}
-                placeholder={
-                  field.source === 'LITERAL'
-                    ? '고정 문자열 값'
-                    : 'currentMap 키 (예: couponId)'
-                }
+                placeholder={field.source === 'LITERAL' ? '고정 문자열 값' : 'currentMap 키 (예: couponId)'}
               />
-            )}
-            {field.source === 'EXCEPTION_MESSAGE' && (
+            ) : (
               <p className="text-xs text-slate-500 px-1">예외 메세지가 자동으로 주입됩니다.</p>
             )}
           </div>
@@ -169,9 +176,11 @@ export function NodeErrorResponseEditor({
 export default function NodeErrorResponseSection({
   errorResponse,
   onChange,
+  sessionVars = [],
 }: {
   errorResponse: NodeErrorResponse | null | undefined
   onChange: (r: NodeErrorResponse | null) => void
+  sessionVars?: SessionVar[]
 }) {
   const isCustom = errorResponse != null
 
@@ -205,6 +214,7 @@ export default function NodeErrorResponseSection({
         <NodeErrorResponseEditor
           value={errorResponse!}
           onChange={onChange}
+          sessionVars={sessionVars}
         />
       )}
 

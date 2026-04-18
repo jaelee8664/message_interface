@@ -1,11 +1,13 @@
 import { Node4Definition, MessageFormat, ProtocolType, ProtoFieldDef, ProtoMessageDef } from '../../types/workflow'
 import { InputField, SelectField } from '../ui/FormField'
 import ProtoSchemaEditor from './ProtoSchemaEditor'
+import { SessionVar, SessionVarPickerButton } from '../ui/SessionVarPicker'
 
 interface Props {
   definition: Node4Definition | undefined
   onChange: (def: Node4Definition) => void
   unitId: string
+  sessionVars?: SessionVar[]
 }
 
 const FORMAT_OPTIONS: { value: MessageFormat; label: string }[] = [
@@ -34,7 +36,7 @@ const DEFAULT_DEF: Node4Definition = {
   reconnectDelaySeconds: 5,
 }
 
-export default function Node4Panel({ definition, onChange, unitId }: Props) {
+export default function Node4Panel({ definition, onChange, unitId, sessionVars = [] }: Props) {
   const def = definition ?? DEFAULT_DEF
 
   const update = (partial: Partial<Node4Definition>) => onChange({ ...def, ...partial })
@@ -123,19 +125,51 @@ export default function Node4Panel({ definition, onChange, unitId }: Props) {
 
       {needsTarget && (
         <>
-          <InputField
-            label="대상 호스트"
-            value={def.targetHost ?? ''}
-            onChange={(e) => update({ targetHost: e.target.value })}
-            placeholder="예: localhost"
-          />
-          <InputField
-            label="대상 포트"
-            type="number"
-            value={def.targetPort ?? ''}
-            onChange={(e) => update({ targetPort: Number(e.target.value) })}
-            placeholder="예: 8081"
-          />
+          {/* 대상 호스트 — 세션 변수 피커 지원 */}
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-slate-300">대상 호스트</label>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                value={def.targetHost ?? ''}
+                onChange={(e) => update({ targetHost: e.target.value })}
+                placeholder="예: localhost 또는 ${SRC_IP}"
+              />
+              <SessionVarPickerButton
+                sessionVars={sessionVars}
+                onSelect={(name) => update({ targetHost: `\${${name}}` })}
+              />
+            </div>
+          </div>
+
+          {/* 대상 포트 — 숫자 또는 세션 변수 표현식 */}
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-slate-300">대상 포트</label>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                value={def.targetPortExpr ?? (def.targetPort != null ? String(def.targetPort) : '')}
+                onChange={(e) => {
+                  const val = e.target.value
+                  if (val === '') {
+                    update({ targetPort: undefined, targetPortExpr: undefined })
+                  } else if (/^\d+$/.test(val)) {
+                    update({ targetPort: Number(val), targetPortExpr: undefined })
+                  } else {
+                    update({ targetPortExpr: val, targetPort: undefined })
+                  }
+                }}
+                placeholder="예: 8081 또는 ${SRC_PORT}"
+              />
+              <SessionVarPickerButton
+                sessionVars={sessionVars}
+                onSelect={(name) => update({ targetPortExpr: `\${${name}}`, targetPort: undefined })}
+              />
+            </div>
+          </div>
+
           {!isTcpClient && (
             <InputField
               label="대상 경로"

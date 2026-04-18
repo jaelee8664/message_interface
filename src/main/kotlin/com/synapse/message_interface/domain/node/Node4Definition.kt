@@ -26,4 +26,7 @@ data class Node4Definition(
     val grpcMethodName: String? = null,
     val protoSchema: List<ProtoFieldDef>? = null,       // 출력 메시지 proto 스키마
     val protoMessages: List<ProtoMessageDef>? = null,   // 중첩 MESSAGE 타입 정의
+    // 세션 변수 템플릿: ${VAR_NAME} 형식으로 sessionVars에서 런타임 치환
+    val targetHostExpr: String? = null,   // targetHost 대신 사용 (변수 참조 시)
+    val targetPortExpr: String? = null,   // targetPort 대신 사용 (변수 참조 시)
 )

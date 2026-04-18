@@ -8,10 +8,12 @@ import {
   NodeErrorResponse,
 } from '../../types/workflow'
 import { NodeErrorResponseEditor } from './NodeErrorResponseSection'
+import { SessionVar, SessionVarSelect } from '../ui/SessionVarPicker'
 
 interface Props {
   definition: Node5Definition | undefined
   onChange: (def: Node5Definition) => void
+  sessionVars?: SessionVar[]
 }
 
 const DEFAULT_SUCCESS_CONFIG: Node5SuccessConfig = {
@@ -54,6 +56,7 @@ const COMMON_HTTP_STATUS: { value: number; label: string }[] = [
 const SUCCESS_SOURCE_OPTIONS: { value: NodeErrorFieldSource; label: string }[] = [
   { value: 'LITERAL', label: '리터럴' },
   { value: 'FROM_MAP', label: '맵에서' },
+  { value: 'FROM_SESSION_VAR', label: '세션 변수' },
 ]
 
 // ── Success field preview ─────────────────────────────────────────────────────
@@ -67,6 +70,8 @@ function buildSuccessPreviewJson(fields: NodeErrorField[]): string {
     const valueStr =
       f.source === 'LITERAL'
         ? `"${f.value}"`
+        : f.source === 'FROM_SESSION_VAR'
+        ? `"(sessionVars["${f.value}"])"`
         : `"(currentMap["${f.value}"])"`
     lines.push(`  "${f.key}": ${valueStr}${comma}`)
   })
@@ -106,9 +111,11 @@ function SuccessFieldPreview({ fields }: { fields: NodeErrorField[] }) {
 function SuccessConfigEditor({
   config,
   onChange,
+  sessionVars = [],
 }: {
   config: Node5SuccessConfig
   onChange: (c: Node5SuccessConfig) => void
+  sessionVars?: SessionVar[]
 }) {
   const update = (partial: Partial<Node5SuccessConfig>) => onChange({ ...config, ...partial })
 
@@ -250,17 +257,21 @@ function SuccessConfigEditor({
                     ✕
                   </button>
                 </div>
-                <input
-                  type="text"
-                  className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                  value={field.value}
-                  onChange={(e) => updateField(idx, { value: e.target.value })}
-                  placeholder={
-                    field.source === 'LITERAL'
-                      ? '고정 문자열 값'
-                      : 'currentMap 키 (예: couponId)'
-                  }
-                />
+                {field.source === 'FROM_SESSION_VAR' ? (
+                  <SessionVarSelect
+                    sessionVars={sessionVars}
+                    value={field.value}
+                    onChange={(v) => updateField(idx, { value: v })}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    value={field.value}
+                    onChange={(e) => updateField(idx, { value: e.target.value })}
+                    placeholder={field.source === 'LITERAL' ? '고정 문자열 값' : 'currentMap 키 (예: couponId)'}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -275,7 +286,7 @@ function SuccessConfigEditor({
 
 // ── Root panel ────────────────────────────────────────────────────────────────
 
-export default function Node5Panel({ definition, onChange }: Props) {
+export default function Node5Panel({ definition, onChange, sessionVars = [] }: Props) {
   const def = definition ?? DEFAULT_DEF
   const [tab, setTab] = useState<'success' | 'error'>('success')
 
@@ -326,6 +337,7 @@ export default function Node5Panel({ definition, onChange }: Props) {
         <SuccessConfigEditor
           config={def.successConfig}
           onChange={(c) => update({ successConfig: c })}
+          sessionVars={sessionVars}
         />
       ) : (
         <div className="space-y-3">
@@ -340,6 +352,7 @@ export default function Node5Panel({ definition, onChange }: Props) {
           <NodeErrorResponseEditor
             value={def.defaultErrorConfig}
             onChange={(r) => update({ defaultErrorConfig: r })}
+            sessionVars={sessionVars}
           />
         </div>
       )}

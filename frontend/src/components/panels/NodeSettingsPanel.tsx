@@ -10,6 +10,7 @@ import Node3Panel, { Node3PanelHandle } from './Node3Panel'
 import Node4Panel from './Node4Panel'
 import Node5Panel from './Node5Panel'
 import NodeErrorResponseSection from './NodeErrorResponseSection'
+import { deriveSessionVars } from '../ui/SessionVarPicker'
 
 const NODE_LABELS: Record<string, string> = {
   NODE0: '수신 프로토콜',
@@ -51,6 +52,8 @@ export default function NodeSettingsPanel() {
   }, [activeNode, activeUnit])
 
   if (!isOpen || !editingNode || !activeUnit) return null
+
+  const sessionVars = deriveSessionVars(activeUnit.nodes)
 
   const updateDefinition = (def: any) => {
     const nodeType = editingNode.nodeType
@@ -147,10 +150,10 @@ export default function NodeSettingsPanel() {
             />
           )}
           {editingNode.nodeType === 'NODE4' && (
-            <Node4Panel definition={editingNode.node4} onChange={updateDefinition} unitId={activeUnit.id} />
+            <Node4Panel definition={editingNode.node4} onChange={updateDefinition} unitId={activeUnit.id} sessionVars={sessionVars} />
           )}
           {editingNode.nodeType === 'NODE5' && (
-            <Node5Panel definition={editingNode.node5} onChange={updateDefinition} />
+            <Node5Panel definition={editingNode.node5} onChange={updateDefinition} sessionVars={sessionVars} />
           )}
           {/* Per-node error response override (NODE0~NODE4 only; NODE5 has its own default) */}
           {editingNode.nodeType !== 'NODE5' && (
@@ -159,6 +162,7 @@ export default function NodeSettingsPanel() {
               onChange={(r) =>
                 setEditingNode({ ...editingNode, errorResponse: r ?? undefined })
               }
+              sessionVars={sessionVars}
             />
           )}
 

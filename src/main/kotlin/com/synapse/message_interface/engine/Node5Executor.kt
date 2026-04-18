@@ -12,9 +12,9 @@ import org.springframework.web.server.ResponseStatusException
 class Node5Executor(private val parserRegistry: MessageParserRegistry) {
 
     /** Called when the pipeline completes without error. */
-    fun executeSuccess(data: Map<String, Any?>, definition: Node5Definition): PipelineResult {
+    fun executeSuccess(data: Map<String, Any?>, definition: Node5Definition, sessionVars: Map<String, String> = emptyMap()): PipelineResult {
         val config = definition.successConfig
-        val (body, outputMap) = buildSuccessBody(data, config)
+        val (body, outputMap) = buildSuccessBody(data, config, sessionVars)
         return PipelineResult(body = body, httpStatus = config.httpStatus, isSuccess = true, outputMap = outputMap)
     }
 
@@ -30,16 +30,17 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
     fun executeError(
         data: Map<String, Any?>,
         errorResponse: NodeErrorResponse,
-        exception: Throwable
+        exception: Throwable,
+        sessionVars: Map<String, String> = emptyMap()
     ): PipelineResult {
         val httpStatus = if (exception is ResponseStatusException) exception.statusCode.value() else 500
-        val (body, outputMap) = buildErrorBody(data, errorResponse, exception)
+        val (body, outputMap) = buildErrorBody(data, errorResponse, exception, sessionVars)
         return PipelineResult(body = body, httpStatus = httpStatus, isSuccess = false, outputMap = outputMap)
     }
 
     // ── Private builders ──────────────────────────────────────────────────────
 
-    private fun buildSuccessBody(data: Map<String, Any?>, config: Node5SuccessConfig): Pair<ByteArray?, Map<String, Any?>> {
+    private fun buildSuccessBody(data: Map<String, Any?>, config: Node5SuccessConfig, sessionVars: Map<String, String>): Pair<ByteArray?, Map<String, Any?>> {
         if (config.passCurrentMap) {
             return Pair(parserRegistry.getParser(config.messageFormat).serialize(data, config.xmlRootElement), data)
         }
@@ -47,8 +48,9 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
         val resultMap = mutableMapOf<String, Any?>()
         for (field in config.fields) {
             resultMap[field.key] = when (field.source) {
-                NodeErrorFieldSource.LITERAL  -> field.value
-                NodeErrorFieldSource.FROM_MAP -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
+                NodeErrorFieldSource.LITERAL          -> field.value
+                NodeErrorFieldSource.FROM_MAP         -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
+                NodeErrorFieldSource.FROM_SESSION_VAR -> sessionVars[field.value]
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> null  // not applicable for success
             }
         }
@@ -58,13 +60,15 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
     private fun buildErrorBody(
         data: Map<String, Any?>,
         errorResponse: NodeErrorResponse,
-        exception: Throwable
+        exception: Throwable,
+        sessionVars: Map<String, String>
     ): Pair<ByteArray?, Map<String, Any?>> {
         val resultMap = mutableMapOf<String, Any?>()
         for (field in errorResponse.fields) {
             resultMap[field.key] = when (field.source) {
                 NodeErrorFieldSource.LITERAL          -> field.value
                 NodeErrorFieldSource.FROM_MAP         -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
+                NodeErrorFieldSource.FROM_SESSION_VAR -> sessionVars[field.value]
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> exception.message ?: "알 수 없는 오류"
             }
         }

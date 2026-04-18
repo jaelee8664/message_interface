@@ -18,4 +18,5 @@ data class Node1Definition(
     // 이 목록에서 fields 가 자동 파생되어 기존 파이프라인 검증 로직 재사용
     val protoSchema: List<ProtoFieldDef>? = null,
     val protoMessages: List<ProtoMessageDef>? = null,   // 중첩 MESSAGE 타입 정의
+    val variableExtractions: List<VariableExtraction> = emptyList(),
 )

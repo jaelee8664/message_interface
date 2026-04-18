@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Node2Definition, ValueReplaceRule, TypeConvertRule, CustomCodeRule, FieldType } from '../../types/workflow'
 import { InputField, SelectField } from '../ui/FormField'
 import CodeAiAssist from '../llm/CodeAiAssist'
+import { VariableExtractionSection } from '../ui/VariableExtractionSection'
 
 interface Props {
   definition: Node2Definition | undefined
@@ -70,6 +71,14 @@ export default function Node2Panel({ definition, onChange, unitId }: Props) {
           unitId={unitId}
         />
       )}
+
+      {/* Variable extractions */}
+      <div className="border-t border-slate-700 pt-3">
+        <VariableExtractionSection
+          extractions={def.variableExtractions ?? []}
+          onChange={(extractions) => onChange({ ...def, variableExtractions: extractions })}
+        />
+      </div>
     </div>
   )
 }

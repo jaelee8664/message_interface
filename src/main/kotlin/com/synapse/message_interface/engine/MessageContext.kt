@@ -8,5 +8,6 @@ data class MessageContext(
     val protocol: String,
     val traceId: String = UUID.randomUUID().toString(),
     val metadata: Map<String, String> = emptyMap(),
-    val parsedMessage: MutableMap<String, Any?>? = null
+    val parsedMessage: MutableMap<String, Any?>? = null,
+    val sessionVars: MutableMap<String, String> = mutableMapOf()
 )

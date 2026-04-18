@@ -92,6 +92,7 @@ class ManualService(
                 NodeErrorFieldSource.LITERAL           -> f.value
                 NodeErrorFieldSource.FROM_MAP          -> "<${f.value} 값>"
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> "<예외 메시지>"
+                NodeErrorFieldSource.FROM_SESSION_VAR  -> "<세션 변수: ${f.value}>"
             }
         }
 

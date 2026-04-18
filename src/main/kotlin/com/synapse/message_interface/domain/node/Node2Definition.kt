@@ -25,5 +25,6 @@ data class CustomCodeRule(
 data class Node2Definition(
     val valueReplaceRules: List<ValueReplaceRule> = emptyList(),
     val typeConvertRules: List<TypeConvertRule> = emptyList(),
-    val customCodeRules: List<CustomCodeRule> = emptyList()
+    val customCodeRules: List<CustomCodeRule> = emptyList(),
+    val variableExtractions: List<VariableExtraction> = emptyList(),
 )
