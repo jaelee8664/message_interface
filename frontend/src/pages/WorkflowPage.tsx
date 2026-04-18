@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import AiChatPanel from '../components/llm/AiChatPanel'
+import { useAuthStore } from '../store/authStore'
 import {
   ReactFlow,
   Background,
@@ -48,6 +49,7 @@ export default function WorkflowPage() {
   const { units, selectedUnitId, fetchUnits, saveUnit } = useWorkflowStore()
   const { openPanel, closePanel, registerDeleteHandler, registerUpdateHandler, registerUpdateConditionHandler } = usePanelStore()
   const { isOpen: historyOpen, openDrawer: openHistory } = useHistoryStore()
+  const { canWrite } = useAuthStore()
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -59,11 +61,9 @@ export default function WorkflowPage() {
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false)
   const addNodeMenuRef = useRef<HTMLDivElement>(null)
 
-  // Auth modal for canvas save
+  // Canvas save modal
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [aiChatOpen, setAiChatOpen] = useState(false)
-  const [saveBy, setSaveBy] = useState('')
-  const [savePassword, setSavePassword] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -321,7 +321,6 @@ export default function WorkflowPage() {
 
   // ── Canvas save ───────────────────────────────────────────────────────────────
   const handleSaveCanvas = async () => {
-    if (!saveBy || !savePassword) { setSaveError('이름과 비밀번호를 입력해 주세요.'); return }
     const unit = units.find((u) => u.id === selectedUnitId)
     if (!unit) return
     setSaving(true)
@@ -339,11 +338,9 @@ export default function WorkflowPage() {
         setSaving(false)
         return
       }
-      await saveUnit(updatedUnit, saveBy, savePassword)
+      await saveUnit(updatedUnit)
       setIsDirty(false)
       setShowSaveModal(false)
-      setSaveBy('')
-      setSavePassword('')
       if (selectedUnitId) setPendingConditions((prev) => { const next = { ...prev }; delete next[selectedUnitId!]; return next })
     } catch (e: any) {
       setSaveError(e.response?.data?.error ?? e.message)
@@ -366,24 +363,26 @@ export default function WorkflowPage() {
               </span>
             )}
 
-            {/* Test mode toggle */}
-            <button
-              onClick={() => {
-                if (simMode) {
-                  closeSimMode()
-                } else {
-                  closePanel()
-                  setSimMode(true)
-                }
-              }}
-              className={`px-3 py-1.5 text-xs rounded font-medium border transition-colors ${
-                simMode
-                  ? 'bg-green-700 hover:bg-green-800 text-white border-green-600'
-                  : 'bg-slate-700 hover:bg-slate-600 text-white border-slate-600'
-              }`}
-            >
-              {simMode ? '▶ 테스트 중' : '▶ 테스트'}
-            </button>
+            {/* Test mode toggle — admin only */}
+            {canWrite() && (
+              <button
+                onClick={() => {
+                  if (simMode) {
+                    closeSimMode()
+                  } else {
+                    closePanel()
+                    setSimMode(true)
+                  }
+                }}
+                className={`px-3 py-1.5 text-xs rounded font-medium border transition-colors ${
+                  simMode
+                    ? 'bg-green-700 hover:bg-green-800 text-white border-green-600'
+                    : 'bg-slate-700 hover:bg-slate-600 text-white border-slate-600'
+                }`}
+              >
+                {simMode ? '▶ 테스트 중' : '▶ 테스트'}
+              </button>
+            )}
 
             {/* Add Node dropdown */}
             <div className="relative" ref={addNodeMenuRef}>
@@ -417,16 +416,18 @@ export default function WorkflowPage() {
               정렬
             </button>
 
-            <button
-              onClick={() => { setShowSaveModal(true); setSaveError(null) }}
-              className={`px-3 py-1.5 text-xs rounded text-white font-medium shadow ${
-                isDirty
-                  ? 'bg-blue-600 hover:bg-blue-700'
-                  : 'bg-slate-600 hover:bg-slate-500 border border-slate-500'
-              }`}
-            >
-              저장
-            </button>
+            {canWrite() && (
+              <button
+                onClick={() => { setShowSaveModal(true); setSaveError(null) }}
+                className={`px-3 py-1.5 text-xs rounded text-white font-medium shadow ${
+                  isDirty
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-slate-600 hover:bg-slate-500 border border-slate-500'
+                }`}
+              >
+                저장
+              </button>
+            )}
             <button
               onClick={openHistory}
               className="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 text-white border border-slate-600"
@@ -518,33 +519,15 @@ export default function WorkflowPage() {
         <span>AI 도우미</span>
       </button>
 
-      {/* Canvas save auth modal */}
+      {/* Canvas save modal */}
       {showSaveModal && (
         <>
           <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setShowSaveModal(false)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-            <div className="w-80 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl pointer-events-auto p-5 space-y-4">
+            <div className="w-72 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl pointer-events-auto p-5 space-y-4">
               <div className="text-sm font-semibold text-white">워크플로우 저장</div>
               <div className="text-xs text-slate-400">
                 노드 설정, 추가/삭제, 위치, 엣지 연결 등 모든 변경사항을 저장합니다.
-              </div>
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={saveBy}
-                  onChange={(e) => setSaveBy(e.target.value)}
-                  placeholder="수정자 이름"
-                  autoFocus
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-                <input
-                  type="password"
-                  value={savePassword}
-                  onChange={(e) => setSavePassword(e.target.value)}
-                  placeholder="비밀번호"
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveCanvas() }}
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
               </div>
               {saveError && <div className="text-xs text-red-400">{saveError}</div>}
               <div className="flex gap-2">
@@ -552,6 +535,7 @@ export default function WorkflowPage() {
                 <button
                   onClick={handleSaveCanvas}
                   disabled={saving}
+                  autoFocus
                   className="flex-1 py-2 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-50"
                 >
                   {saving ? '저장 중...' : '저장'}

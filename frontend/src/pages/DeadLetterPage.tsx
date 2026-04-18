@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
+import { useAuthStore } from '../store/authStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -161,7 +162,7 @@ function ReplayModal({ entry, onClose }: { entry: DeadLetterEntry; onClose: () =
 
 // ── Row component ─────────────────────────────────────────────────────────────
 
-function DeadLetterRow({ entry, onReplay }: { entry: DeadLetterEntry; onReplay: (e: DeadLetterEntry) => void }) {
+function DeadLetterRow({ entry, onReplay, canReplay }: { entry: DeadLetterEntry; onReplay: (e: DeadLetterEntry) => void; canReplay: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -231,15 +232,17 @@ function DeadLetterRow({ entry, onReplay }: { entry: DeadLetterEntry; onReplay: 
             </div>
           )}
 
-          {/* Replay button */}
-          <div className="flex justify-end pt-1">
-            <button
-              onClick={e => { e.stopPropagation(); onReplay(entry) }}
-              className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded text-white font-medium"
-            >
-              재처리
-            </button>
-          </div>
+          {/* Replay button — admin only */}
+          {canReplay && (
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={e => { e.stopPropagation(); onReplay(entry) }}
+                className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded text-white font-medium"
+              >
+                재처리
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -251,6 +254,7 @@ function DeadLetterRow({ entry, onReplay }: { entry: DeadLetterEntry; onReplay: 
 const DAY_OPTIONS = [1, 7, 14, 30]
 
 export default function DeadLetterPage() {
+  const { canWrite } = useAuthStore()
   const [entries, setEntries] = useState<DeadLetterEntry[]>([])
   const [days, setDays] = useState(7)
   const [fromFiles, setFromFiles] = useState(false)
@@ -367,7 +371,7 @@ export default function DeadLetterPage() {
       )}
 
       {entries.map(entry => (
-        <DeadLetterRow key={entry.id} entry={entry} onReplay={setReplayTarget} />
+        <DeadLetterRow key={entry.id} entry={entry} onReplay={setReplayTarget} canReplay={canWrite()} />
       ))}
 
       {/* Replay modal */}

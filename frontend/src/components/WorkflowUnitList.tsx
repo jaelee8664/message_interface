@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useWorkflowStore } from '../store/workflowStore'
+import { useAuthStore } from '../store/authStore'
 import { ProtocolType, WorkflowUnit } from '../types/workflow'
 import { useResizablePanel } from '../hooks/useResizablePanel'
 import CreateUnitModal from './CreateUnitModal'
@@ -43,6 +44,7 @@ function getNode0Protocol(unit: WorkflowUnit): ProtocolType | null {
 
 export default function WorkflowUnitList() {
   const { units, selectedUnitId, selectUnit, loading, deleteUnit } = useWorkflowStore()
+  const { canWrite } = useAuthStore()
   const { width, onHandleMouseDown } = useResizablePanel(256, {
     direction: 'right',
     storageKey: 'panel-left-width',
@@ -52,8 +54,6 @@ export default function WorkflowUnitList() {
   const [search, setSearch] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [deletePassword, setDeletePassword] = useState('')
-  const [deleteBy, setDeleteBy] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [manualMode, setManualMode] = useState(false)
@@ -92,12 +92,10 @@ export default function WorkflowUnitList() {
   }
 
   const handleDeleteConfirm = async () => {
-    if (!deletingId || !deleteBy || !deletePassword) return
+    if (!deletingId) return
     try {
-      await deleteUnit(deletingId, deleteBy, deletePassword)
+      await deleteUnit(deletingId)
       setDeletingId(null)
-      setDeletePassword('')
-      setDeleteBy('')
       setDeleteError(null)
     } catch (e: any) {
       setDeleteError(e.response?.data?.error ?? e.message)
@@ -207,13 +205,15 @@ export default function WorkflowUnitList() {
                   >
                     ↓
                   </button>
-                  <button
-                    onClick={() => { setDeletingId(unit.id); setDeleteError(null) }}
-                    className="px-2 text-slate-500 hover:text-red-400"
-                    title="삭제"
-                  >
-                    ✕
-                  </button>
+                  {canWrite() && (
+                    <button
+                      onClick={() => { setDeletingId(unit.id); setDeleteError(null) }}
+                      className="px-2 text-slate-500 hover:text-red-400"
+                      title="삭제"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -246,7 +246,7 @@ export default function WorkflowUnitList() {
                 프로토콜 정의서 생성 ({selectedIds.size})
               </button>
             </div>
-          ) : (
+          ) : canWrite() ? (
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setShowCreateModal(true)}
@@ -261,7 +261,7 @@ export default function WorkflowUnitList() {
                 ↑ JSON 가져오기
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -287,28 +287,12 @@ export default function WorkflowUnitList() {
             <div className="w-80 bg-slate-900 rounded-xl border border-red-800 shadow-2xl pointer-events-auto p-5 space-y-4">
               <div className="text-base font-semibold text-white">워크플로우 단위 삭제</div>
               <div className="text-sm text-slate-400">
-                삭제 후 복구하려면 히스토리에서 롤백해야 합니다. 삭제 인증을 입력하세요.
-              </div>
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={deleteBy}
-                  onChange={(e) => setDeleteBy(e.target.value)}
-                  placeholder="수정자 이름"
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
-                />
-                <input
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="비밀번호"
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
-                />
+                삭제 후 복구하려면 히스토리에서 롤백해야 합니다.
               </div>
               {deleteError && <div className="text-xs text-red-400">{deleteError}</div>}
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setDeletingId(null); setDeletePassword(''); setDeleteBy(''); setDeleteError(null) }}
+                  onClick={() => { setDeletingId(null); setDeleteError(null) }}
                   className="flex-1 py-2 text-sm rounded bg-slate-700 hover:bg-slate-600 text-white"
                 >
                   취소

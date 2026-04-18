@@ -49,7 +49,7 @@ interface HistoryStore {
   openDrawer: () => void
   closeDrawer: () => void
   fetchHistory: () => Promise<void>
-  rollback: (version: number, modifiedBy: string, password: string) => Promise<void>
+  rollback: (version: number) => Promise<void>
   openDiff: (version: number) => Promise<void>
   closeDiff: () => void
 }
@@ -77,10 +77,10 @@ export const useHistoryStore = create<HistoryStore>((set) => ({
     }
   },
 
-  rollback: async (version, modifiedBy, password) => {
+  rollback: async (version) => {
     set({ loading: true, error: null })
     try {
-      await axios.post('/synapse/workflow/rollback', { version, modifiedBy, password })
+      await axios.post('/synapse/workflow/rollback', { version })
       set({ loading: false, isOpen: false, diffResult: null })
     } catch (e: any) {
       set({ error: e.response?.data?.error ?? e.message, loading: false })

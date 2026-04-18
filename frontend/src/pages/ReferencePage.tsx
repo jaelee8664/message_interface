@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { useAuthStore } from '../store/authStore'
 
 export default function ReferencePage() {
+  const { canWrite } = useAuthStore()
   const [config, setConfig] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -31,12 +33,14 @@ export default function ReferencePage() {
       <div className="p-6 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-white">기준정보 설정</h1>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
-          >
-            {saveStatus ?? '저장'}
-          </button>
+          {canWrite() && (
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+            >
+              {saveStatus ?? '저장'}
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 items-start">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { usePanelStore } from '../../store/panelStore'
+import { useAuthStore } from '../../store/authStore'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { WorkflowCondition, WorkflowNode } from '../../types/workflow'
 import Node0Panel from './Node0Panel'
@@ -30,6 +31,7 @@ const NODE_COLORS: Record<string, string> = {
 
 export default function NodeSettingsPanel() {
   const { isOpen, activeNode, activeUnit, closePanel, onDeleteNode, onUpdateNode, onUpdateCondition } = usePanelStore()
+  const { canWrite } = useAuthStore()
   const { width, onHandleMouseDown } = useResizablePanel(384, {
     direction: 'left',
     storageKey: 'panel-right-width',
@@ -193,18 +195,20 @@ export default function NodeSettingsPanel() {
               닫기
             </button>
           </div>
-          {/* Delete node (removes from canvas; requires canvas save to persist) */}
-          <button
-            onClick={() => {
-              if (editingNode && onDeleteNode) {
-                onDeleteNode(editingNode.id)
-                closePanel()
-              }
-            }}
-            className="w-full py-1.5 text-xs rounded border border-red-800/60 text-red-400 hover:bg-red-900/20 transition-colors"
-          >
-            이 노드 삭제 (캔버스에서 제거)
-          </button>
+          {/* Delete node — admin only */}
+          {canWrite() && (
+            <button
+              onClick={() => {
+                if (editingNode && onDeleteNode) {
+                  onDeleteNode(editingNode.id)
+                  closePanel()
+                }
+              }}
+              className="w-full py-1.5 text-xs rounded border border-red-800/60 text-red-400 hover:bg-red-900/20 transition-colors"
+            >
+              이 노드 삭제 (캔버스에서 제거)
+            </button>
+          )}
         </div>
       </div>
     </>

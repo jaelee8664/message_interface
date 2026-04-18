@@ -10,8 +10,8 @@ interface WorkflowStore {
 
   fetchUnits: () => Promise<void>
   selectUnit: (id: string | null) => void
-  saveUnit: (unit: WorkflowUnit, modifiedBy: string, password: string) => Promise<void>
-  deleteUnit: (unitId: string, modifiedBy: string, password: string) => Promise<void>
+  saveUnit: (unit: WorkflowUnit) => Promise<void>
+  deleteUnit: (unitId: string) => Promise<void>
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
@@ -32,10 +32,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   selectUnit: (id) => set({ selectedUnitId: id }),
 
-  saveUnit: async (unit, modifiedBy, password) => {
+  saveUnit: async (unit) => {
     set({ loading: true, error: null })
     try {
-      await axios.post('/synapse/workflow/units', { unit, modifiedBy, password })
+      await axios.post('/synapse/workflow/units', { unit })
       await get().fetchUnits()
     } catch (e: any) {
       set({ error: e.response?.data?.error ?? e.message, loading: false })
@@ -43,10 +43,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
   },
 
-  deleteUnit: async (unitId, modifiedBy, password) => {
+  deleteUnit: async (unitId) => {
     set({ loading: true, error: null })
     try {
-      await axios.delete('/synapse/workflow/units', { data: { unitId, modifiedBy, password } })
+      await axios.delete('/synapse/workflow/units', { data: { unitId } })
       await get().fetchUnits()
     } catch (e: any) {
       set({ error: e.response?.data?.error ?? e.message, loading: false })

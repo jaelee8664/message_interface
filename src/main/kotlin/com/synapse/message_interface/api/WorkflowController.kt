@@ -1,7 +1,6 @@
 package com.synapse.message_interface.api
 
 import com.synapse.message_interface.api.dto.*
-import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.config.WorkflowPersistenceConfig
 import com.synapse.message_interface.domain.NodeType
 import com.synapse.message_interface.domain.ProtocolType
@@ -12,6 +11,7 @@ import com.synapse.message_interface.workflow.WorkflowDiffService
 import com.synapse.message_interface.workflow.WorkflowHistoryManager
 import com.synapse.message_interface.workflow.WorkflowRegistry
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.*
 
 @RestController
@@ -22,10 +22,8 @@ class WorkflowController(
     private val conditionValidator: WorkflowConditionValidator,
     private val persistenceConfig: WorkflowPersistenceConfig,
     private val receptionManager: ReceptionManager,
-    private val referenceConfigService: ReferenceConfigService,
     private val diffService: WorkflowDiffService
 ) {
-    private val editPassword: String get() = referenceConfigService.getEditPassword()
 
     @GetMapping("/units")
     fun getAllUnits(): ResponseEntity<ApiResponse<List<*>>> =
@@ -39,17 +37,14 @@ class WorkflowController(
     }
 
     @PostMapping("/units")
-    suspend fun saveUnit(@RequestBody req: SaveWorkflowRequest): ResponseEntity<ApiResponse<*>> {
-        if (req.password != editPassword) {
-            return ResponseEntity.status(403).body(ApiResponse.error("비밀번호가 올바르지 않습니다."))
-        }
-        if (req.modifiedBy.isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("수정자 이름을 입력해 주세요."))
-        }
+    suspend fun saveUnit(
+        @RequestBody req: SaveWorkflowRequest,
+        auth: Authentication
+    ): ResponseEntity<ApiResponse<*>> {
+        val modifiedBy = auth.name
 
-        // Validate REST_SERVER path not in reserved /synapse/** namespace
         val reservedPathUnit = req.unit.nodes.firstOrNull { node ->
-            node.node0?.protocol == com.synapse.message_interface.domain.ProtocolType.REST_SERVER &&
+            node.node0?.protocol == ProtocolType.REST_SERVER &&
             node.node0.path?.startsWith("/synapse/") == true
         }
         if (reservedPathUnit != null) {
@@ -58,7 +53,6 @@ class WorkflowController(
             ))
         }
 
-        // Validate condition no intersection — only compare units with the same NODE0 protocol
         val newProtocol = req.unit.nodes.find { it.nodeType == NodeType.NODE0 }?.node0?.protocol
         val existingConditions = registry.getAll()
             .filter { it.id != req.unit.id }
@@ -75,8 +69,7 @@ class WorkflowController(
             return ResponseEntity.badRequest().body(ApiResponse.error(msg))
         }
 
-        historyManager.save(registry.getAll(), req.modifiedBy)
-
+        historyManager.save(registry.getAll(), modifiedBy)
         registry.addOrUpdate(req.unit)
         receptionManager.restartUnit(req.unit)
         persistenceConfig.saveUnit(req.unit)
@@ -85,11 +78,12 @@ class WorkflowController(
     }
 
     @DeleteMapping("/units")
-    suspend fun deleteUnit(@RequestBody req: DeleteWorkflowRequest): ResponseEntity<ApiResponse<*>> {
-        if (req.password != editPassword) {
-            return ResponseEntity.status(403).body(ApiResponse.error("비밀번호가 올바르지 않습니다."))
-        }
-        historyManager.save(registry.getAll(), req.modifiedBy)
+    suspend fun deleteUnit(
+        @RequestBody req: DeleteWorkflowRequest,
+        auth: Authentication
+    ): ResponseEntity<ApiResponse<*>> {
+        val modifiedBy = auth.name
+        historyManager.save(registry.getAll(), modifiedBy)
         registry.remove(req.unitId)
         receptionManager.stopHandlers(req.unitId)
         persistenceConfig.deleteUnit(req.unitId)
@@ -130,10 +124,10 @@ class WorkflowController(
     }
 
     @PostMapping("/rollback")
-    suspend fun rollback(@RequestBody req: RollbackRequest): ResponseEntity<ApiResponse<*>> {
-        if (req.password != editPassword) {
-            return ResponseEntity.status(403).body(ApiResponse.error("비밀번호가 올바르지 않습니다."))
-        }
+    suspend fun rollback(
+        @RequestBody req: RollbackRequest,
+        auth: Authentication
+    ): ResponseEntity<ApiResponse<*>> {
         val units = historyManager.rollbackTo(req.version)
             ?: return ResponseEntity.badRequest().body(ApiResponse.error("해당 버전을 찾을 수 없습니다."))
         registry.load(WorkflowTree(units))

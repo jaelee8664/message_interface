@@ -40,8 +40,6 @@ export default function CreateUnitModal({ onClose }: Props) {
   const [kafkaTopic, setKafkaTopic] = useState('')
   const [kafkaBootstrapServers, setKafkaBootstrapServers] = useState('')
   const [kafkaGroupId, setKafkaGroupId] = useState('')
-  const [modifiedBy, setModifiedBy] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -102,8 +100,6 @@ export default function CreateUnitModal({ onClose }: Props) {
   }
 
   const handleCreate = async () => {
-    if (!modifiedBy.trim()) { setError('수정자 이름을 입력해 주세요.'); return }
-    if (!password) { setError('비밀번호를 입력해 주세요.'); return }
     setError(null)
     setSaving(true)
 
@@ -113,7 +109,7 @@ export default function CreateUnitModal({ onClose }: Props) {
         kafkaBootstrapServers: kafkaBootstrapServers || undefined,
         kafkaGroupId: kafkaGroupId || undefined,
       })
-      await saveUnit(unit, modifiedBy, password)
+      await saveUnit(unit)
       selectUnit(unit.id)
       onClose()
     } catch (e: any) {
@@ -275,26 +271,6 @@ export default function CreateUnitModal({ onClose }: Props) {
                   </div>
                 </div>
 
-                {/* Auth */}
-                <div className="space-y-3">
-                  <div className="text-xs font-medium text-slate-300">저장 인증</div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={modifiedBy}
-                      onChange={(e) => { setModifiedBy(e.target.value); setError(null) }}
-                      placeholder="수정자 이름"
-                      className="flex-1 px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                    />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => { setPassword(e.target.value); setError(null) }}
-                      placeholder="비밀번호"
-                      className="flex-1 px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
               </div>
             )}
 

@@ -11,8 +11,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 @Service
 class ReferenceConfigService(
-    private val template: ReactiveMongoTemplate,
-    @Value("\${workflow.editPassword:admin}") private val editPassword: String
+    private val template: ReactiveMongoTemplate
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -45,8 +44,6 @@ class ReferenceConfigService(
         runBlocking { saveToMongo(data) }
         cache.set(data)
     }
-
-    fun getEditPassword(): String = editPassword
 
     // ── MongoDB I/O ───────────────────────────────────────────────────────────
 

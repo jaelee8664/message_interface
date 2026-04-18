@@ -13,8 +13,6 @@ export default function ImportUnitModal({ onClose }: Props) {
   const [parsed, setParsed] = useState<Omit<WorkflowUnit, 'id'> | null>(null)
   const [unitName, setUnitName] = useState('')
   const [parseError, setParseError] = useState<string | null>(null)
-  const [modifiedBy, setModifiedBy] = useState('')
-  const [password, setPassword] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -48,7 +46,7 @@ export default function ImportUnitModal({ onClose }: Props) {
   }
 
   const handleImport = async () => {
-    if (!parsed || !modifiedBy || !password) return
+    if (!parsed || !unitName) return
     setSaving(true)
     setSaveError(null)
     try {
@@ -57,7 +55,7 @@ export default function ImportUnitModal({ onClose }: Props) {
         id: generateId('unit'),
         name: unitName,
       }
-      await saveUnit(unit, modifiedBy, password)
+      await saveUnit(unit)
       onClose()
     } catch (e: any) {
       setSaveError(e.response?.data?.error ?? e.message)
@@ -93,43 +91,19 @@ export default function ImportUnitModal({ onClose }: Props) {
 
           {/* Name field */}
           {parsed && (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">단위 이름</label>
-                <input
-                  type="text"
-                  value={unitName}
-                  onChange={(e) => setUnitName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-                {nameCollision && (
-                  <div className="text-xs text-amber-400 mt-1">
-                    ⚠️ 같은 이름의 단위가 이미 존재합니다. 다른 이름을 사용하거나 덮어쓰게 됩니다.
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">수정자 이름</label>
-                <input
-                  type="text"
-                  value={modifiedBy}
-                  onChange={(e) => setModifiedBy(e.target.value)}
-                  placeholder="수정자 이름"
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">비밀번호</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="비밀번호"
-                  className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">단위 이름</label>
+              <input
+                type="text"
+                value={unitName}
+                onChange={(e) => setUnitName(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+              {nameCollision && (
+                <div className="text-xs text-amber-400 mt-1">
+                  ⚠️ 같은 이름의 단위가 이미 존재합니다. 다른 이름을 사용하거나 덮어쓰게 됩니다.
+                </div>
+              )}
             </div>
           )}
 
@@ -144,9 +118,9 @@ export default function ImportUnitModal({ onClose }: Props) {
             </button>
             <button
               onClick={handleImport}
-              disabled={!parsed || !modifiedBy || !password || !unitName || saving}
+              disabled={!parsed || !unitName || saving}
               className={`flex-1 py-2 text-sm rounded font-medium transition-colors ${
-                parsed && modifiedBy && password && unitName && !saving
+                parsed && unitName && !saving
                   ? 'bg-blue-600 hover:bg-blue-700 text-white'
                   : 'bg-slate-700 text-slate-500 cursor-not-allowed'
               }`}

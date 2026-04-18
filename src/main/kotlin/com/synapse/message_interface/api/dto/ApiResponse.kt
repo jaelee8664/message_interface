@@ -7,6 +7,6 @@ data class ApiResponse<T>(
 ) {
     companion object {
         fun <T> ok(data: T) = ApiResponse(true, data)
-        fun error(message: String) = ApiResponse<Nothing>(false, error = message)
+        fun error(message: String) = ApiResponse<Any?>(false, error = message)
     }
 }

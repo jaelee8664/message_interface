@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useHistoryStore, HistoryEntry } from '../store/historyStore'
 import { useWorkflowStore } from '../store/workflowStore'
+import { useAuthStore } from '../store/authStore'
 import DiffModal from './DiffModal'
 
 export default function HistoryDrawer() {
   const { entries, isOpen, loading, error, closeDrawer, fetchHistory, rollback, openDiff, diffLoading } = useHistoryStore()
   const { fetchUnits } = useWorkflowStore()
+  const { canWrite } = useAuthStore()
   const [rollbackTarget, setRollbackTarget] = useState<number | null>(null)
-  const [modifiedBy, setModifiedBy] = useState('')
-  const [password, setPassword] = useState('')
   const [rollbackError, setRollbackError] = useState<string | null>(null)
   const [rollbackLoading, setRollbackLoading] = useState(false)
 
@@ -19,15 +19,13 @@ export default function HistoryDrawer() {
   if (!isOpen) return null
 
   const handleRollback = async () => {
-    if (!rollbackTarget || !modifiedBy || !password) return
+    if (!rollbackTarget) return
     setRollbackError(null)
     setRollbackLoading(true)
     try {
-      await rollback(rollbackTarget, modifiedBy, password)
+      await rollback(rollbackTarget)
       await fetchUnits()
       setRollbackTarget(null)
-      setModifiedBy('')
-      setPassword('')
     } catch (e: any) {
       setRollbackError(e.response?.data?.error ?? e.message)
     } finally {
@@ -72,18 +70,10 @@ export default function HistoryDrawer() {
               entry={entry}
               isRollbackTarget={rollbackTarget === entry.version}
               diffLoading={diffLoading}
-              onRollbackClick={() => {
-                setRollbackTarget(entry.version)
-                setRollbackError(null)
-                setModifiedBy('')
-                setPassword('')
-              }}
+              canRollback={canWrite()}
+              onRollbackClick={() => { setRollbackTarget(entry.version); setRollbackError(null) }}
               onRollbackCancel={() => setRollbackTarget(null)}
               onDiffClick={() => openDiff(entry.version)}
-              modifiedBy={modifiedBy}
-              password={password}
-              onModifiedByChange={setModifiedBy}
-              onPasswordChange={setPassword}
               rollbackError={rollbackError}
               rollbackLoading={rollbackLoading}
               onRollbackConfirm={handleRollback}
@@ -106,13 +96,10 @@ interface CardProps {
   entry: HistoryEntry
   isRollbackTarget: boolean
   diffLoading: boolean
+  canRollback: boolean
   onRollbackClick: () => void
   onRollbackCancel: () => void
   onDiffClick: () => void
-  modifiedBy: string
-  password: string
-  onModifiedByChange: (v: string) => void
-  onPasswordChange: (v: string) => void
   rollbackError: string | null
   rollbackLoading: boolean
   onRollbackConfirm: () => void
@@ -120,9 +107,8 @@ interface CardProps {
 }
 
 function HistoryEntryCard({
-  entry, isRollbackTarget, diffLoading,
+  entry, isRollbackTarget, diffLoading, canRollback,
   onRollbackClick, onRollbackCancel, onDiffClick,
-  modifiedBy, password, onModifiedByChange, onPasswordChange,
   rollbackError, rollbackLoading, onRollbackConfirm, formatDate,
 }: CardProps) {
   return (
@@ -163,12 +149,14 @@ function HistoryEntryCard({
             >
               비교
             </button>
-            <button
-              onClick={onRollbackClick}
-              className="px-2.5 py-1 text-xs rounded border border-amber-600/50 text-amber-400 hover:bg-amber-600/10 transition-colors"
-            >
-              복원
-            </button>
+            {canRollback && (
+              <button
+                onClick={onRollbackClick}
+                className="px-2.5 py-1 text-xs rounded border border-amber-600/50 text-amber-400 hover:bg-amber-600/10 transition-colors"
+              >
+                복원
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -177,22 +165,6 @@ function HistoryEntryCard({
         <div className="px-5 pb-4 space-y-3">
           <div className="p-3 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
             v{entry.version}으로 복원합니다. 현재 상태는 히스토리로 저장됩니다.
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={modifiedBy}
-              onChange={(e) => onModifiedByChange(e.target.value)}
-              placeholder="수정자 이름"
-              className="flex-1 px-3 py-2 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => onPasswordChange(e.target.value)}
-              placeholder="비밀번호"
-              className="flex-1 px-3 py-2 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
           </div>
           {rollbackError && <div className="text-xs text-red-400">{rollbackError}</div>}
           <div className="flex gap-2">
@@ -204,7 +176,7 @@ function HistoryEntryCard({
             </button>
             <button
               onClick={onRollbackConfirm}
-              disabled={rollbackLoading || !modifiedBy || !password}
+              disabled={rollbackLoading}
               className="flex-1 py-1.5 text-xs rounded bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
             >
               {rollbackLoading ? '복원 중...' : `v${entry.version}으로 복원`}

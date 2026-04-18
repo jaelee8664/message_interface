@@ -3,6 +3,8 @@ import PipelineTraceView from '../components/simulator/PipelineTraceView'
 import type { SimulationNodeTrace } from '../components/simulator/PipelineTraceView'
 import PipelineMiniMap from '../components/simulator/PipelineMiniMap'
 import type { RawNode, RawEdge } from '../components/simulator/PipelineMiniMap'
+import { authFetch } from '../utils/authFetch'
+import { useAuthStore } from '../store/authStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -203,7 +205,7 @@ async function executeStep(step: SimulationStep, message: string): Promise<UnitS
           },
         ])
     )
-    const res = await fetch('/synapse/simulator/execute', {
+    const res = await authFetch('/synapse/simulator/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -322,7 +324,7 @@ function StepEditor({
       setUnitNodes([]); setUnitEdges([])
       return
     }
-    fetch(`/synapse/workflow/units/${step.unitId}`)
+    authFetch(`/synapse/workflow/units/${step.unitId}`)
       .then(r => r.json())
       .then(json => {
         const nodes: RawNode[] = json.data?.nodes ?? []
@@ -671,6 +673,7 @@ function StepResultCard({
 // ── Scenario Tab ───────────────────────────────────────────────────────────────
 
 function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
+  const { canWrite } = useAuthStore()
   const [scenarios, setScenarios] = useState<SimulationScenario[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Omit<SimulationScenario, 'id' | 'createdAt' | 'updatedAt'>>(emptyScenario())
@@ -687,7 +690,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
   useEffect(() => { fetchScenarios() }, [])
 
   async function fetchScenarios() {
-    const res = await fetch('/synapse/simulator/scenarios')
+    const res = await authFetch('/synapse/simulator/scenarios')
     const json = await res.json()
     setScenarios(json.data ?? [])
   }
@@ -720,7 +723,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
       const payload = isNew
         ? { id: '', ...editing, createdAt: now, updatedAt: now }
         : { id: selectedId!, ...editing, createdAt: scenarioCreatedAt || now, updatedAt: now }
-      const res = await fetch('/synapse/simulator/scenarios', {
+      const res = await authFetch('/synapse/simulator/scenarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -738,7 +741,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
 
   async function deleteScenario() {
     if (!selectedId || !confirm('이 시나리오를 삭제하시겠습니까?')) return
-    await fetch(`/synapse/simulator/scenarios/${selectedId}`, { method: 'DELETE' })
+    await authFetch(`/synapse/simulator/scenarios/${selectedId}`, { method: 'DELETE' })
     newScenario()
     await fetchScenarios()
   }
@@ -859,14 +862,16 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
               value={editing.description}
               onChange={e => setEditing(ed => ({ ...ed, description: e.target.value }))}
             />
-            <button
-              className="px-3 py-1.5 rounded bg-slate-600 hover:bg-slate-500 text-white text-sm disabled:opacity-40"
-              onClick={save}
-              disabled={saving}
-            >
-              {saving ? '저장 중...' : '저장'}
-            </button>
-            {!isNew && (
+            {canWrite() && (
+              <button
+                className="px-3 py-1.5 rounded bg-slate-600 hover:bg-slate-500 text-white text-sm disabled:opacity-40"
+                onClick={save}
+                disabled={saving}
+              >
+                {saving ? '저장 중...' : '저장'}
+              </button>
+            )}
+            {canWrite() && !isNew && (
               <button
                 className="px-3 py-1.5 rounded bg-red-800 hover:bg-red-700 text-white text-sm"
                 onClick={deleteScenario}
@@ -902,7 +907,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
               </span>
             )}
 
-            {running ? (
+            {canWrite() && (running ? (
               <button
                 className="px-4 py-1.5 rounded bg-red-800 hover:bg-red-700 text-white text-sm font-medium"
                 onClick={stopRun}
@@ -917,7 +922,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
               >
                 ▶ 실행
               </button>
-            )}
+            ))}
           </div>
         </div>
 
@@ -1069,6 +1074,7 @@ function LogEntryRow({
 // ── Log Play Tab ──────────────────────────────────────────────────────────────
 
 function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
+  const { canWrite } = useAuthStore()
   const [datetimeFrom, setDatetimeFrom] = useState(localDatetimeMinsAgo(5))
   const [datetimeTo, setDatetimeTo] = useState(localDatetimeNow)
   const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set())
@@ -1094,7 +1100,7 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
     const ids = Array.from(selectedUnitIds)
     Promise.all(
       ids.map(id =>
-        fetch(`/synapse/workflow/units/${id}`)
+        authFetch(`/synapse/workflow/units/${id}`)
           .then(r => r.json())
           .then(json => {
             const nodes: RawNode[] = json.data?.nodes ?? []
@@ -1155,7 +1161,7 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
     try {
       const utcFrom = new Date(datetimeFrom).toISOString().slice(0, 19) + 'Z'
       const utcTo   = new Date(datetimeTo).toISOString().slice(0, 19) + 'Z'
-      const res = await fetch('/synapse/simulator/log-play/fetch', {
+      const res = await authFetch('/synapse/simulator/log-play/fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ datetimeFrom: utcFrom, datetimeTo: utcTo, unitIds: Array.from(selectedUnitIds) }),
@@ -1198,7 +1204,7 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
       setRunningTraceId(entry.traceId)
       setProgress({ current: i + 1, total: selected.length })
       try {
-        const res = await fetch('/synapse/simulator/log-play/run', {
+        const res = await authFetch('/synapse/simulator/log-play/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ entries: [entry], node4Overrides: overridesPayload }),
@@ -1454,7 +1460,7 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
                 {progress.current}/{progress.total} 처리 중
               </span>
             )}
-            {running ? (
+            {canWrite() && (running ? (
               <button
                 className="px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white text-xs font-medium transition-colors whitespace-nowrap"
                 onClick={stop}
@@ -1469,7 +1475,7 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
               >
                 ▶ {selectedLogs.length}개 실행
               </button>
-            )}
+            ))}
           </div>
         )}
 
@@ -1513,7 +1519,7 @@ export default function SimulatorPage() {
   const [activeTab, setActiveTab] = useState<SimulatorTab>('scenario')
 
   useEffect(() => {
-    fetch('/synapse/workflow/units')
+    authFetch('/synapse/workflow/units')
       .then(r => r.json())
       .then(json => setUnits((json.data ?? []).map((u: { id: string; name: string }) => ({ id: u.id, name: u.name }))))
   }, [])
