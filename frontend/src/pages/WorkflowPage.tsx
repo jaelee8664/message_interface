@@ -453,7 +453,7 @@ export default function WorkflowPage() {
               deleteKeyCode={['Backspace', 'Delete']}
             >
               <Background variant={BackgroundVariant.Dots} color="#334155" gap={20} />
-              <Controls className="bg-slate-800 border-slate-600" showInteractiveButton={false} />
+              <Controls className="bg-slate-800 border-slate-600" showInteractive={false} />
               <MiniMap className="bg-slate-800" nodeColor="#475569" />
             </ReactFlow>
           </SimContext.Provider>
