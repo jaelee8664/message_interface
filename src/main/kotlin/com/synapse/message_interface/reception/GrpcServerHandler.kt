@@ -159,3 +159,18 @@ class DynamicMessageMarshaller(
     override fun parse(stream: InputStream): DynamicMessage =
         DynamicMessage.parseFrom(descriptor, stream)
 }
+
+// send-only gRPC 클라이언트(Node4)용: 응답 포맷이 달라도 스트림이 죽지 않도록 파싱 오류를 무시
+class TolerantDynamicMessageMarshaller(
+    private val descriptor: Descriptors.Descriptor
+) : MethodDescriptor.Marshaller<DynamicMessage> {
+
+    override fun stream(value: DynamicMessage): InputStream =
+        value.toByteString().newInput()
+
+    override fun parse(stream: InputStream): DynamicMessage = try {
+        DynamicMessage.parseFrom(descriptor, stream)
+    } catch (_: Exception) {
+        DynamicMessage.newBuilder(descriptor).build()
+    }
+}

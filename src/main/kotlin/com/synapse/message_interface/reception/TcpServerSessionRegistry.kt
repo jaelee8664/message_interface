@@ -21,6 +21,9 @@ class TcpServerSessionRegistry {
     // clientIp → Set<channelId>
     private val ipToChannelIds = ConcurrentHashMap<String, MutableSet<String>>()
 
+    // unitId → Set<channelId>
+    private val unitToChannelIds = ConcurrentHashMap<String, MutableSet<String>>()
+
     fun register(channelId: String, ctx: ChannelHandlerContext) {
         val clientIp = (ctx.channel().remoteAddress() as? InetSocketAddress)?.address?.hostAddress
 
@@ -40,7 +43,25 @@ class TcpServerSessionRegistry {
                 if (set.isEmpty()) ipToChannelIds.remove(clientIp)
             }
         }
+        unitToChannelIds.values.forEach { set -> set.remove(channelId) }
         log.info("[TCP Server] 세션 제거: channelId=$channelId, ip=$clientIp, 현재 연결 수=${sessions.size}")
+    }
+
+    /** 첫 메시지 수신 후 채널을 해당 유닛에 연결한다. */
+    fun associateUnit(channelId: String, unitId: String) {
+        if (sessions.containsKey(channelId)) {
+            unitToChannelIds.computeIfAbsent(unitId) { ConcurrentHashMap.newKeySet() }.add(channelId)
+        }
+    }
+
+    /** 유닛 중지 시 해당 유닛의 모든 TCP 세션을 종료한다. */
+    fun closeAllForUnit(unitId: String) {
+        val channelIds = unitToChannelIds.remove(unitId) ?: return
+        channelIds.forEach { channelId ->
+            sessions.remove(channelId)?.let { ctx ->
+                if (ctx.channel().isActive) ctx.close()
+            }
+        }
     }
 
     fun send(channelId: String, data: ByteArray) {

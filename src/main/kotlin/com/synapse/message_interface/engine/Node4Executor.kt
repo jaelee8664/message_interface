@@ -332,7 +332,6 @@ class Node4Executor(
                             svcName = svcName,
                             methodName = method,
                             requestDescriptor = descriptor,
-                            responseDescriptor = descriptor,
                             reconnectDelaySeconds = definition.reconnectDelaySeconds
                         )
                     } catch (e: Exception) {

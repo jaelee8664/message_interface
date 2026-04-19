@@ -12,5 +12,6 @@ data class PipelineResult(
     val body: ByteArray?,
     val httpStatus: Int = 200,
     val isSuccess: Boolean = true,
-    val outputMap: Map<String, Any?>? = null
+    val outputMap: Map<String, Any?>? = null,
+    val unitId: String? = null
 )

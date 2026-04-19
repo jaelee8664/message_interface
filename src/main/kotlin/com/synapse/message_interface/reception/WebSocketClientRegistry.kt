@@ -34,12 +34,14 @@ class WebSocketClientRegistry {
 
     private val sessions        = ConcurrentHashMap<String, WebSocketSession>()
     private val pending         = ConcurrentHashMap<String, CompletableDeferred<WebSocketSession>>()
+    private val loopRunning     = ConcurrentHashMap.newKeySet<String>()
     private val stoppedKeys     = ConcurrentHashMap.newKeySet<String>()
     private val reconnectDelays = ConcurrentHashMap<String, Long>()
     private val pingEnabledMap  = ConcurrentHashMap<String, Boolean>()
     private val pingIntervals   = ConcurrentHashMap<String, Long>()
     private val pongTimeouts    = ConcurrentHashMap<String, Long>()
     private val onMessageHandlers = ConcurrentHashMap<String, suspend (ByteArray) -> Unit>()
+    private val wsClient = ReactorNettyWebSocketClient()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     suspend fun getOrConnect(
@@ -65,7 +67,9 @@ class WebSocketClientRegistry {
         val existing = pending.putIfAbsent(key, newDeferred)
 
         return if (existing == null) {
-            scope.launch { connectLoop(key, uri, newDeferred, retryOnFirstFailure) }
+            if (loopRunning.add(key)) {
+                scope.launch { connectLoop(key, uri, newDeferred, retryOnFirstFailure) }
+            }
             newDeferred.await()
         } else {
             existing.await()
@@ -78,92 +82,100 @@ class WebSocketClientRegistry {
         initialDeferred: CompletableDeferred<WebSocketSession>,
         retryOnFirstFailure: Boolean
     ) {
-        var connected = false
-        while (true) {
-            try {
-                log.info("[WS Client] 연결 시도: $uri (key=$key)")
-                ReactorNettyWebSocketClient().execute(uri) { session ->
-                    sessions[key] = session
+        try {
+            var connected = false
+            while (true) {
+                try {
+                    log.info("[WS Client] 연결 시도: $uri (key=$key)")
+                    wsClient.execute(uri) { session ->
+                        sessions[key] = session
+                        if (!connected) {
+                            initialDeferred.complete(session)
+                            pending.remove(key)
+                            connected = true
+                        } else {
+                            // 재연결 성공 — 대기 중인 getOrConnect 호출 완료
+                            pending.remove(key)?.let { if (!it.isCompleted) it.complete(session) }
+                        }
+                        log.info("[WS Client] 연결 성공: key=$key")
+
+                        val lastPongTime = AtomicLong(System.currentTimeMillis())
+
+                        val pingJob = if (pingEnabledMap[key] == true) {
+                            scope.launch {
+                                while (session.isOpen) {
+                                    delay(pingIntervals[key] ?: 30_000L)
+                                    if (!session.isOpen) break
+
+                                    val pingSentAt = System.currentTimeMillis()
+                                    try {
+                                        session.send(Mono.just(session.pingMessage { it.wrap(ByteArray(0)) }))
+                                            .awaitFirstOrNull()
+                                    } catch (e: Exception) {
+                                        log.warn("[WS Client] Ping 전송 실패 (key=$key): ${e.message}")
+                                        session.close().awaitFirstOrNull()
+                                        break
+                                    }
+
+                                    delay(pongTimeouts[key] ?: 10_000L)
+                                    if (lastPongTime.get() < pingSentAt) {
+                                        log.warn("[WS Client] Pong 미응답, 강제 종료 (key=$key)")
+                                        session.close().awaitFirstOrNull()
+                                        break
+                                    }
+                                }
+                            }
+                        } else null
+
+                        session.receive()
+                            .doOnNext { msg ->
+                                if (msg.type.name.contains("PONG")) lastPongTime.set(System.currentTimeMillis())
+                            }
+                            .filter { !it.type.name.contains("PONG") }
+                            .flatMap { message ->
+                                val buf = message.payload
+                                val payload = ByteArray(buf.readableByteCount()).also { buf.read(it) }
+                                mono {
+                                    onMessageHandlers[key]?.invoke(payload)
+                                }.onErrorResume { e ->
+                                    log.error("[WS Client] 메시지 처리 오류 (key=$key): ${e.message}", e)
+                                    Mono.empty()
+                                }
+                            }
+                            .doFinally {
+                                pingJob?.cancel()
+                                sessions.remove(key)
+                                log.info("[WS Client] 연결 종료: key=$key")
+                            }
+                            .then()
+                    }.awaitFirstOrNull()
+                } catch (e: Exception) {
+                    sessions.remove(key)
                     if (!connected) {
-                        initialDeferred.complete(session)
-                        pending.remove(key)
-                        connected = true
+                        if (!retryOnFirstFailure) {
+                            initialDeferred.completeExceptionally(e)
+                            pending.remove(key)
+                            log.warn("[WS Client] 초기 연결 실패 (key=$key): ${e.message}")
+                            return
+                        }
+                        log.warn("[WS Client] 초기 연결 실패, 재시도 (key=$key): ${e.message}")
+                    } else {
+                        log.warn("[WS Client] 연결 끊김, 재연결 대기 (key=$key): ${e.message}")
                     }
-                    log.info("[WS Client] 연결 성공: key=$key")
+                }
 
-                    val lastPongTime = AtomicLong(System.currentTimeMillis())
-
-                    val pingJob = if (pingEnabledMap[key] == true) {
-                        scope.launch {
-                            while (session.isOpen) {
-                                delay(pingIntervals[key] ?: 30_000L)
-                                if (!session.isOpen) break
-
-                                val pingSentAt = System.currentTimeMillis()
-                                try {
-                                    session.send(Mono.just(session.pingMessage { it.wrap(ByteArray(0)) }))
-                                        .awaitFirstOrNull()
-                                } catch (e: Exception) {
-                                    log.warn("[WS Client] Ping 전송 실패 (key=$key): ${e.message}")
-                                    session.close().awaitFirstOrNull()
-                                    break
-                                }
-
-                                delay(pongTimeouts[key] ?: 10_000L)
-                                if (lastPongTime.get() < pingSentAt) {
-                                    log.warn("[WS Client] Pong 미응답, 강제 종료 (key=$key)")
-                                    session.close().awaitFirstOrNull()
-                                    break
-                                }
-                            }
-                        }
-                    } else null
-
-                    session.receive()
-                        .doOnNext { msg ->
-                            if (msg.type.name.contains("PONG")) lastPongTime.set(System.currentTimeMillis())
-                        }
-                        .filter { !it.type.name.contains("PONG") }
-                        .flatMap { message ->
-                            val buf = message.payload
-                            val payload = ByteArray(buf.readableByteCount()).also { buf.read(it) }
-                            mono {
-                                onMessageHandlers[key]?.invoke(payload)
-                            }.onErrorResume { e ->
-                                log.error("[WS Client] 메시지 처리 오류 (key=$key): ${e.message}", e)
-                                Mono.empty()
-                            }
-                        }
-                        .doFinally {
-                            pingJob?.cancel()
-                            sessions.remove(key)
-                            log.info("[WS Client] 연결 종료: key=$key")
-                        }
-                        .then()
-                }.awaitFirstOrNull()
-            } catch (e: Exception) {
-                sessions.remove(key)
-                if (!connected) {
-                    if (!retryOnFirstFailure) {
-                        initialDeferred.completeExceptionally(e)
-                        pending.remove(key)
-                        log.warn("[WS Client] 초기 연결 실패 (key=$key): ${e.message}")
-                        return
+                if (stoppedKeys.contains(key)) {
+                    if (!connected && !initialDeferred.isCompleted) {
+                        initialDeferred.completeExceptionally(CancellationException("연결 중단: $key"))
                     }
-                    log.warn("[WS Client] 초기 연결 실패, 재시도 (key=$key): ${e.message}")
-                } else {
-                    log.warn("[WS Client] 연결 끊김, 재연결 대기 (key=$key): ${e.message}")
+                    log.info("[WS Client] 연결 중단: key=$key")
+                    return
                 }
+                delay(reconnectDelays[key] ?: RECONNECT_DELAY_MS_DEFAULT)
             }
-
-            if (stoppedKeys.contains(key)) {
-                if (!connected && !initialDeferred.isCompleted) {
-                    initialDeferred.completeExceptionally(CancellationException("연결 중단: $key"))
-                }
-                log.info("[WS Client] 연결 중단: key=$key")
-                return
-            }
-            delay(reconnectDelays[key] ?: RECONNECT_DELAY_MS_DEFAULT)
+        } finally {
+            loopRunning.remove(key)
+            pending.remove(key)?.let { if (!it.isCompleted) it.completeExceptionally(CancellationException("연결 루프 종료: $key")) }
         }
     }
 

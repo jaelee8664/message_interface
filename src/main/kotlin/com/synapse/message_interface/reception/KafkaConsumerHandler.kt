@@ -7,6 +7,7 @@ import com.synapse.message_interface.engine.WorkflowDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
@@ -60,7 +61,13 @@ class KafkaConsumerHandler(
                             log.error("[Kafka Consumer] 처리 오류: ${e.message}", e)
                         }
                     }
-                    if (!records.isEmpty) c.commitSync()
+                    if (!records.isEmpty) {
+                        try {
+                            c.commitSync()
+                        } catch (e: Exception) {
+                            log.error("[Kafka Consumer] Offset commit 실패, 루프 재시도: ${e.message}", e)
+                        }
+                    }
                 }
             }
         }
@@ -69,6 +76,7 @@ class KafkaConsumerHandler(
 
     fun stop() {
         running = false
+        scope.cancel()
         log.info("[Kafka Consumer] 중지: unitId=${unit.id}")
     }
 }

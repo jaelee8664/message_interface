@@ -96,7 +96,8 @@ class TcpClientConnectionPool {
                     scope.launch {
                         connection.inbound().receive()
                             .flatMap { buf ->
-                                val payload = ByteArray(buf.readableBytes()).also { buf.readBytes(it) }
+                                val payload = ByteArray(buf.readableBytes())
+                                try { buf.readBytes(payload) } finally { buf.release() }
                                 mono {
                                     onMessageHandlers[key]?.invoke(payload)
                                 }.onErrorResume { e ->

@@ -145,6 +145,7 @@ class ReceptionManager(
         }
         // 서버 프로토콜 세션 정리 (unit 삭제 시)
         sessionRegistry.closeAllForUnit(unitId)
+        tcpServerSessionRegistry.closeAllForUnit(unitId)
     }
 
     fun restartUnit(unit: WorkflowUnit) {

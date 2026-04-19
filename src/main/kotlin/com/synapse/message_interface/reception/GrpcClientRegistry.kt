@@ -40,16 +40,17 @@ import java.util.concurrent.TimeUnit
 class GrpcClientRegistry {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    private val channels        = ConcurrentHashMap<String, ManagedChannel>()
+    private val channels         = ConcurrentHashMap<String, ManagedChannel>()
     private val requestObservers = ConcurrentHashMap<String, StreamObserver<DynamicMessage>>()
-    private val pending         = ConcurrentHashMap<String, CompletableDeferred<StreamObserver<DynamicMessage>>>()
-    private val loopRunning     = ConcurrentHashMap.newKeySet<String>()
-    private val stoppedKeys     = ConcurrentHashMap.newKeySet<String>()
-    private val reconnectDelays = ConcurrentHashMap<String, Long>()
-    private val pingEnabledMap  = ConcurrentHashMap<String, Boolean>()
-    private val pingIntervals   = ConcurrentHashMap<String, Long>()
-    private val pongTimeouts    = ConcurrentHashMap<String, Long>()
-    private val scope           = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val pending          = ConcurrentHashMap<String, CompletableDeferred<StreamObserver<DynamicMessage>>>()
+    private val loopRunning      = ConcurrentHashMap.newKeySet<String>()
+    private val stoppedKeys      = ConcurrentHashMap.newKeySet<String>()
+    private val reconnectDelays  = ConcurrentHashMap<String, Long>()
+    private val pingEnabledMap   = ConcurrentHashMap<String, Boolean>()
+    private val pingIntervals    = ConcurrentHashMap<String, Long>()
+    private val pongTimeouts     = ConcurrentHashMap<String, Long>()
+    private val onMessageHandlers = ConcurrentHashMap<String, suspend (DynamicMessage) -> Unit>()
+    private val scope            = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Node0 핸들러 스트림 추적 (모니터링 전용)
     private val handlerObservers = ConcurrentHashMap<String, StreamObserver<DynamicMessage>>()
@@ -65,7 +66,7 @@ class GrpcClientRegistry {
         host: String,
         port: Int,
         methodDescriptor: MethodDescriptor<DynamicMessage, DynamicMessage>,
-        onMessage: suspend (DynamicMessage) -> Unit,
+        onMessage: (suspend (DynamicMessage) -> Unit)? = null,
         reconnectDelaySeconds: Int = 5,
         pingEnabled: Boolean = false,
         pingIntervalSeconds: Int = 30,
@@ -76,6 +77,7 @@ class GrpcClientRegistry {
         pingEnabledMap[key] = pingEnabled
         pingIntervals[key]  = pingIntervalSeconds * 1000L
         pongTimeouts[key]   = pongTimeoutSeconds * 1000L
+        if (onMessage != null) onMessageHandlers[key] = onMessage
 
         // 빠른 경로: 살아있는 옵저버 즉시 반환
         requestObservers[key]?.let { return it }
@@ -87,7 +89,7 @@ class GrpcClientRegistry {
 
         // 루프가 실행 중이지 않은 경우에만 새 루프 시작
         if (loopRunning.add(key)) {
-            scope.launch { connectLoop(key, host, port, methodDescriptor, onMessage) }
+            scope.launch { connectLoop(key, host, port, methodDescriptor) }
         }
         return newDeferred.await()
     }
@@ -109,21 +111,19 @@ class GrpcClientRegistry {
         svcName: String,
         methodName: String,
         requestDescriptor: Descriptors.Descriptor,
-        responseDescriptor: Descriptors.Descriptor,
         reconnectDelaySeconds: Int = 5
     ) {
         val md = MethodDescriptor.newBuilder<DynamicMessage, DynamicMessage>()
             .setType(MethodDescriptor.MethodType.BIDI_STREAMING)
             .setFullMethodName(MethodDescriptor.generateFullMethodName(svcName, methodName))
             .setRequestMarshaller(DynamicMessageMarshaller(requestDescriptor))
-            .setResponseMarshaller(DynamicMessageMarshaller(responseDescriptor))
+            .setResponseMarshaller(TolerantDynamicMessageMarshaller(requestDescriptor))
             .build()
         getOrConnect(
             key = key,
             host = host,
             port = port,
             methodDescriptor = md,
-            onMessage = { /* Node4 송신 전용: 수신 메시지 무시 */ },
             reconnectDelaySeconds = reconnectDelaySeconds
         )
     }
@@ -152,6 +152,7 @@ class GrpcClientRegistry {
      */
     fun remove(key: String) {
         stoppedKeys.add(key)
+        onMessageHandlers.remove(key)
         reconnectDelays.remove(key)
         pingEnabledMap.remove(key)
         pingIntervals.remove(key)
@@ -175,8 +176,7 @@ class GrpcClientRegistry {
         key: String,
         host: String,
         port: Int,
-        methodDescriptor: MethodDescriptor<DynamicMessage, DynamicMessage>,
-        onMessage: suspend (DynamicMessage) -> Unit
+        methodDescriptor: MethodDescriptor<DynamicMessage, DynamicMessage>
     ) {
         try {
             while (true) {
@@ -206,7 +206,7 @@ class GrpcClientRegistry {
                     val responseObserver = object : StreamObserver<DynamicMessage> {
                         override fun onNext(value: DynamicMessage) {
                             scope.launch {
-                                try { onMessage(value) }
+                                try { onMessageHandlers[key]?.invoke(value) }
                                 catch (e: Exception) {
                                     log.error("[gRPC Client] 메시지 처리 오류 (key=$key): ${e.message}", e)
                                 }

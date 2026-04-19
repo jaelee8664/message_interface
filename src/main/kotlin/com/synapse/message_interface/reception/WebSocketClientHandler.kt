@@ -19,8 +19,8 @@ class WebSocketClientHandler(
     private val clientRegistry: WebSocketClientRegistry
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val connKey = "${definition.host}:${definition.port}${definition.path ?: "/"}"
-    private val uri = URI("ws://${definition.host}:${definition.port}${definition.path ?: "/"}")
+    private val connKey = "${definition.host ?: "localhost"}:${definition.port ?: 80}${definition.path ?: "/"}"
+    private val uri = URI("ws://${definition.host ?: "localhost"}:${definition.port ?: 80}${definition.path ?: "/"}")
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun start() {

@@ -43,7 +43,8 @@ class RawTcpInboundHandler(
                     protocol = "TCP_SERVER",
                     metadata = mapOf("channelId" to channelId)
                 )
-                dispatcher.dispatch(context, format)
+                val result = dispatcher.dispatch(context, format)
+                result.unitId?.let { sessionRegistry?.associateUnit(channelId, it) }
             } catch (e: Exception) {
                 log.error("[TCP Server] 처리 오류: ${e.message}", e)
             }

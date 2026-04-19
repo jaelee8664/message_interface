@@ -57,6 +57,6 @@ class WorkflowDispatcher(
             )
 
         val enrichedContext = if (preParsed != null) context.copy(parsedMessage = preParsed) else context
-        return pipeline.execute(enrichedContext, unit)
+        return pipeline.execute(enrichedContext, unit).copy(unitId = unit.id)
     }
 }
