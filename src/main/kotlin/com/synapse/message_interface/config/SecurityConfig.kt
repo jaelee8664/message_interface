@@ -17,6 +17,8 @@ class SecurityConfig(private val jwtFilter: JwtAuthenticationFilter) {
     fun securityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain =
         http
             .csrf { it.disable() }
+            .httpBasic { it.disable() }
+            .formLogin { it.disable() }
             .addFilterAt(jwtFilter, SecurityWebFiltersOrder.AUTHENTICATION)
             .authorizeExchange { exchanges ->
                 exchanges

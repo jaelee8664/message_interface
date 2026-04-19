@@ -305,12 +305,16 @@ function StepEditor({
   units,
   onChange,
   onDelete,
+  onRunStep,
+  isRunningStep,
 }: {
   step: SimulationStep
   isFirst: boolean
   units: WorkflowUnitSummary[]
   onChange: (s: SimulationStep) => void
   onDelete: () => void
+  onRunStep?: () => void
+  isRunningStep?: boolean
 }) {
   const [open, setOpen] = useState(true)
   const [node4Nodes, setNode4Nodes] = useState<ExtendedNode4Info[]>([])
@@ -408,6 +412,17 @@ function StepEditor({
           <span className="text-xs text-cyan-400 bg-cyan-900/40 border border-cyan-700/50 px-1.5 py-0.5 rounded shrink-0">
             체이닝
           </span>
+        )}
+        {onRunStep && (
+          isRunningStep ? (
+            <span className="text-xs text-blue-400 animate-pulse shrink-0">실행 중...</span>
+          ) : (
+            <button
+              className="text-xs text-green-400 hover:text-green-300 px-1.5 py-0.5 rounded border border-green-800 hover:border-green-600 shrink-0 transition-colors"
+              onClick={e => { e.stopPropagation(); onRunStep() }}
+              title="이 단계만 실행"
+            >▶</button>
+          )
         )}
         <span className="text-slate-400 text-xs">{open ? '▲' : '▼'}</span>
         <button
@@ -686,6 +701,7 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
 
   // Run state
   const [running, setRunning] = useState(false)
+  const [runningStepOrder, setRunningStepOrder] = useState<number | null>(null)
   const [stepStatuses, setStepStatuses] = useState<Record<number, StepRunStatus>>({})
   const [stepResults, setStepResults] = useState<EnhancedStepResult[]>([])
   const abortRef = useRef(false)
@@ -825,6 +841,26 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
 
   function stopRun() {
     abortRef.current = true
+  }
+
+  async function runSingleStep(step: SimulationStep) {
+    if (running || runningStepOrder !== null) return
+    setRunningStepOrder(step.order)
+    setStepStatuses(prev => ({ ...prev, [step.order]: 'running' }))
+    const result = await executeStep(step, step.message)
+    const assertionResults = evaluateAssertions(step.assertions, result)
+    const overallSuccess = result.success && assertionResults.every(a => a.passed)
+    const enhanced: EnhancedStepResult = {
+      stepOrder: step.order,
+      stepName: step.name,
+      unitId: step.unitId,
+      result,
+      assertionResults,
+      overallSuccess,
+    }
+    setStepResults(prev => [...prev.filter(r => r.stepOrder !== step.order), enhanced])
+    setStepStatuses(prev => ({ ...prev, [step.order]: 'done' }))
+    setRunningStepOrder(null)
   }
 
   function addStep() {
@@ -991,6 +1027,8 @@ function ScenarioTab({ units }: { units: WorkflowUnitSummary[] }) {
               units={units}
               onChange={s => updateStep(editing.steps.findIndex(es => es.order === step.order), s)}
               onDelete={() => deleteStep(editing.steps.findIndex(es => es.order === step.order))}
+              onRunStep={() => runSingleStep(step)}
+              isRunningStep={runningStepOrder === step.order}
             />
           ))}
           <button
@@ -1046,12 +1084,14 @@ function LogEntryRow({
   onToggle,
   result,
   isRunning,
+  onRunSingle,
 }: {
   entry: LogPlayEntry
   selected: boolean
   onToggle: () => void
   result?: LogPlayRunResultItem
   isRunning?: boolean
+  onRunSingle?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [showTrace, setShowTrace] = useState(false)
@@ -1097,6 +1137,13 @@ function LogEntryRow({
           <span className={`text-xs shrink-0 ${result.result.success ? 'text-green-400' : 'text-red-400'}`}>
             {result.result.success ? '✓' : '✗'} {result.result.durationMs}ms
           </span>
+        )}
+        {onRunSingle && !isRunning && (
+          <button
+            className="text-xs text-green-400 hover:text-green-300 px-1.5 py-0.5 rounded border border-green-800 hover:border-green-600 shrink-0 transition-colors"
+            onClick={e => { e.stopPropagation(); onRunSingle() }}
+            title="이 항목만 실행"
+          >{result ? '↺' : '▶'}</button>
         )}
         <span className="text-slate-500 text-xs shrink-0">{expanded ? '▲' : '▼'}</span>
       </div>
@@ -1292,6 +1339,35 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
 
   function stop() {
     abortRef.current = true
+  }
+
+  async function runSingleEntry(entry: LogPlayEntry) {
+    if (running) return
+    setRunningTraceId(entry.traceId)
+    const overridesPayload = Object.fromEntries(
+      Object.entries(node4Overrides)
+        .filter(([_, v]) => v.host.trim() || v.port.trim() || v.ip.trim())
+        .map(([nodeId, v]) => [nodeId, {
+          host: v.host.trim() || undefined,
+          port: v.port.trim() ? parseInt(v.port) : undefined,
+          targetIp: v.ip.trim() || undefined,
+        }])
+    )
+    try {
+      const res = await authFetch('/synapse/simulator/log-play/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: [entry], node4Overrides: overridesPayload }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? '실행 실패')
+      const items: LogPlayRunResultItem[] = json.data ?? []
+      setResults(prev => [...prev.filter(r => r.traceId !== entry.traceId), ...items])
+    } catch (e) {
+      setRunError(String(e))
+    } finally {
+      setRunningTraceId(null)
+    }
   }
 
   const selectedLogs = logEntries.filter(e => selectedTraceIds.has(e.traceId))
@@ -1581,6 +1657,7 @@ function LogPlayTab({ units }: { units: WorkflowUnitSummary[] }) {
               onToggle={() => toggleTraceId(entry.traceId)}
               result={results.find(r => r.traceId === entry.traceId)}
               isRunning={runningTraceId === entry.traceId}
+              onRunSingle={() => runSingleEntry(entry)}
             />
           ))}
         </div>
