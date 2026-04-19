@@ -28,7 +28,6 @@ class ReceptionManager(
     private val dispatcher: WorkflowDispatcher,
     private val sessionRegistry: WebSocketSessionRegistry,
     private val webSocketClientRegistry: WebSocketClientRegistry,
-    private val connectionRegistry: TcpConnectionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val grpcSessionRegistry: GrpcSessionRegistry,
@@ -74,7 +73,7 @@ class ReceptionManager(
                 log.info("[ReceptionManager] WebSocket Client 시작: unitId={}", unit.id)
             }
             ProtocolType.TCP_CLIENT -> {
-                val handler = TcpClientHandler(unit, node0, dispatcher, connectionRegistry, tcpClientConnectionPool)
+                val handler = TcpClientHandler(unit, node0, dispatcher, tcpClientConnectionPool)
                 handler.start()
                 activeHandlers[unit.id] = handler
                 log.info("[ReceptionManager] TCP Client 시작: unitId={}", unit.id)

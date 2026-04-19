@@ -11,7 +11,6 @@ import com.synapse.message_interface.reception.DynamicProtoUtil.toDynamicMessage
 import com.synapse.message_interface.reception.GrpcClientRegistry
 import com.synapse.message_interface.reception.GrpcSessionRegistry
 import com.synapse.message_interface.reception.TcpClientConnectionPool
-import com.synapse.message_interface.reception.TcpConnectionRegistry
 import com.synapse.message_interface.reception.TcpServerSessionRegistry
 import com.synapse.message_interface.reception.WebSocketClientRegistry
 import com.synapse.message_interface.reception.WebSocketSessionRegistry
@@ -36,7 +35,6 @@ class Node4Executor(
     private val webClient: WebClient,
     private val webSocketSessionRegistry: WebSocketSessionRegistry,
     private val webSocketClientRegistry: WebSocketClientRegistry,
-    private val tcpConnectionRegistry: TcpConnectionRegistry,
     private val tcpServerSessionRegistry: TcpServerSessionRegistry,
     private val tcpClientConnectionPool: TcpClientConnectionPool,
     private val kafkaProducerPool: KafkaProducerPool,

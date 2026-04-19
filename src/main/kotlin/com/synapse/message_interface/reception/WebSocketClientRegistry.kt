@@ -1,6 +1,7 @@
 package com.synapse.message_interface.reception
 
 import com.synapse.message_interface.domain.MessageFormat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.awaitFirstOrNull
+import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.socket.WebSocketSession
@@ -15,32 +17,47 @@ import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClien
 import reactor.core.publisher.Mono
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Node4 WEBSOCKET_CLIENT 전용 persistent connection 관리.
- * 동일 key(host:port/path)에 대해 하나의 연결을 유지하며,
- * 연결 끊김 시 항상 자동 재연결한다. remove() 호출 시에만 루프가 중단된다.
+ * WebSocket 클라이언트 연결 풀 (Node0 수신 + Node4 송신 공유).
+ *
+ * - 동일 key(host:port/path)에 대해 세션을 하나만 유지한다.
+ * - Node0가 onMessage 콜백과 함께 먼저 연결하면 해당 세션으로 수신/송신 모두 처리된다.
+ * - Node4가 먼저 연결하면 onMessage 없이 세션을 수립하고, 이후 Node0가 같은 key로
+ *   getOrConnect() 호출 시 onMessage만 등록된다 (새 연결 생성 없음).
+ * - retryOnFirstFailure=true(Node0 전용): 초기 연결 실패 시에도 재시도한다.
  */
 @Component
 class WebSocketClientRegistry {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val sessions = ConcurrentHashMap<String, WebSocketSession>()
-    private val pending = ConcurrentHashMap<String, CompletableDeferred<WebSocketSession>>()
-    private val stoppedKeys = ConcurrentHashMap.newKeySet<String>()
-    private val reconnectDelays = ConcurrentHashMap<String, Long>()     // key → delayMs
+
+    private val sessions        = ConcurrentHashMap<String, WebSocketSession>()
+    private val pending         = ConcurrentHashMap<String, CompletableDeferred<WebSocketSession>>()
+    private val stoppedKeys     = ConcurrentHashMap.newKeySet<String>()
+    private val reconnectDelays = ConcurrentHashMap<String, Long>()
+    private val pingEnabledMap  = ConcurrentHashMap<String, Boolean>()
+    private val pingIntervals   = ConcurrentHashMap<String, Long>()
+    private val pongTimeouts    = ConcurrentHashMap<String, Long>()
+    private val onMessageHandlers = ConcurrentHashMap<String, suspend (ByteArray) -> Unit>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /**
-     * 기존 열린 세션을 반환하거나, 없으면 새 persistent 연결을 수립한 뒤 반환한다.
-     * 동시에 같은 key로 여러 코루틴이 호출해도 연결은 한 번만 생성된다.
-     */
     suspend fun getOrConnect(
         key: String,
         uri: URI,
-        reconnectDelaySeconds: Int = 5
+        reconnectDelaySeconds: Int = 5,
+        pingEnabled: Boolean = false,
+        pingIntervalSeconds: Int = 30,
+        pongTimeoutSeconds: Int = 10,
+        onMessage: (suspend (ByteArray) -> Unit)? = null,
+        retryOnFirstFailure: Boolean = false
     ): WebSocketSession {
         stoppedKeys.remove(key)
         reconnectDelays[key] = reconnectDelaySeconds * 1000L
+        pingEnabledMap[key]  = pingEnabled
+        pingIntervals[key]   = pingIntervalSeconds * 1000L
+        pongTimeouts[key]    = pongTimeoutSeconds * 1000L
+        if (onMessage != null) onMessageHandlers[key] = onMessage
 
         sessions[key]?.takeIf { it.isOpen }?.let { return it }
 
@@ -48,7 +65,7 @@ class WebSocketClientRegistry {
         val existing = pending.putIfAbsent(key, newDeferred)
 
         return if (existing == null) {
-            scope.launch { connectLoop(key, uri, newDeferred) }
+            scope.launch { connectLoop(key, uri, newDeferred, retryOnFirstFailure) }
             newDeferred.await()
         } else {
             existing.await()
@@ -58,47 +75,95 @@ class WebSocketClientRegistry {
     private suspend fun connectLoop(
         key: String,
         uri: URI,
-        initialDeferred: CompletableDeferred<WebSocketSession>
+        initialDeferred: CompletableDeferred<WebSocketSession>,
+        retryOnFirstFailure: Boolean
     ) {
-        var firstAttempt = true
+        var connected = false
         while (true) {
             try {
-                log.info("[WS Client Registry] 연결 시도: $uri (key=$key)")
+                log.info("[WS Client] 연결 시도: $uri (key=$key)")
                 ReactorNettyWebSocketClient().execute(uri) { session ->
                     sessions[key] = session
-                    if (firstAttempt) {
+                    if (!connected) {
                         initialDeferred.complete(session)
                         pending.remove(key)
-                        firstAttempt = false
+                        connected = true
                     }
-                    log.info("[WS Client Registry] 연결 성공: key=$key")
+                    log.info("[WS Client] 연결 성공: key=$key")
+
+                    val lastPongTime = AtomicLong(System.currentTimeMillis())
+
+                    val pingJob = if (pingEnabledMap[key] == true) {
+                        scope.launch {
+                            while (session.isOpen) {
+                                delay(pingIntervals[key] ?: 30_000L)
+                                if (!session.isOpen) break
+
+                                val pingSentAt = System.currentTimeMillis()
+                                try {
+                                    session.send(Mono.just(session.pingMessage { it.wrap(ByteArray(0)) }))
+                                        .awaitFirstOrNull()
+                                } catch (e: Exception) {
+                                    log.warn("[WS Client] Ping 전송 실패 (key=$key): ${e.message}")
+                                    session.close().awaitFirstOrNull()
+                                    break
+                                }
+
+                                delay(pongTimeouts[key] ?: 10_000L)
+                                if (lastPongTime.get() < pingSentAt) {
+                                    log.warn("[WS Client] Pong 미응답, 강제 종료 (key=$key)")
+                                    session.close().awaitFirstOrNull()
+                                    break
+                                }
+                            }
+                        }
+                    } else null
+
                     session.receive()
+                        .doOnNext { msg ->
+                            if (msg.type.name.contains("PONG")) lastPongTime.set(System.currentTimeMillis())
+                        }
+                        .filter { !it.type.name.contains("PONG") }
+                        .flatMap { message ->
+                            val buf = message.payload
+                            val payload = ByteArray(buf.readableByteCount()).also { buf.read(it) }
+                            mono {
+                                onMessageHandlers[key]?.invoke(payload)
+                            }.onErrorResume { e ->
+                                log.error("[WS Client] 메시지 처리 오류 (key=$key): ${e.message}", e)
+                                Mono.empty()
+                            }
+                        }
                         .doFinally {
+                            pingJob?.cancel()
                             sessions.remove(key)
-                            log.info("[WS Client Registry] 연결 종료: key=$key")
+                            log.info("[WS Client] 연결 종료: key=$key")
                         }
                         .then()
                 }.awaitFirstOrNull()
             } catch (e: Exception) {
                 sessions.remove(key)
-                if (firstAttempt) {
-                    initialDeferred.completeExceptionally(e)
-                    pending.remove(key)
-                    log.warn("[WS Client Registry] 초기 연결 실패 (key=$key): ${e.message}")
-                    return
+                if (!connected) {
+                    if (!retryOnFirstFailure) {
+                        initialDeferred.completeExceptionally(e)
+                        pending.remove(key)
+                        log.warn("[WS Client] 초기 연결 실패 (key=$key): ${e.message}")
+                        return
+                    }
+                    log.warn("[WS Client] 초기 연결 실패, 재시도 (key=$key): ${e.message}")
+                } else {
+                    log.warn("[WS Client] 연결 끊김, 재연결 대기 (key=$key): ${e.message}")
                 }
-                log.warn("[WS Client Registry] 연결 끊김, 재연결 대기 (key=$key): ${e.message}")
             }
 
-            if (!firstAttempt) {
-                if (stoppedKeys.contains(key)) {
-                    log.info("[WS Client Registry] 연결 중단: key=$key")
-                    return
+            if (stoppedKeys.contains(key)) {
+                if (!connected && !initialDeferred.isCompleted) {
+                    initialDeferred.completeExceptionally(CancellationException("연결 중단: $key"))
                 }
-                delay(reconnectDelays[key] ?: RECONNECT_DELAY_MS_DEFAULT)
-            } else {
+                log.info("[WS Client] 연결 중단: key=$key")
                 return
             }
+            delay(reconnectDelays[key] ?: RECONNECT_DELAY_MS_DEFAULT)
         }
     }
 
@@ -115,26 +180,19 @@ class WebSocketClientRegistry {
         session.send(Mono.just(msg)).awaitFirstOrNull()
     }
 
-    // Node0 핸들러 연결 추적 (모니터링 전용 — 핸들러가 연결 생명주기를 직접 관리)
-    private val handlerSessions = ConcurrentHashMap<String, WebSocketSession>()
-
-    fun registerHandlerSession(key: String, session: WebSocketSession) {
-        handlerSessions[key] = session
-    }
-
-    fun removeHandlerSession(key: String) {
-        handlerSessions.remove(key)
-    }
-
     fun getAll(): Map<String, Boolean> =
-        sessions.mapValues { (_, s) -> s.isOpen } + handlerSessions.mapValues { (_, s) -> s.isOpen }
+        sessions.mapValues { (_, s) -> s.isOpen }
 
     fun isConnected(key: String) = sessions[key]?.isOpen == true
 
     fun remove(key: String) {
         stoppedKeys.add(key)
-        sessions.remove(key)?.let { if (it.isOpen) scope.launch { it.close().awaitFirstOrNull() } }
+        onMessageHandlers.remove(key)
         reconnectDelays.remove(key)
+        pingEnabledMap.remove(key)
+        pingIntervals.remove(key)
+        pongTimeouts.remove(key)
+        sessions.remove(key)?.let { if (it.isOpen) scope.launch { it.close().awaitFirstOrNull() } }
     }
 
     companion object {
