@@ -33,7 +33,7 @@ class Node1Executor(
     }
 
     private fun validateField(
-        parsed: Map<String, Any?>,
+        parsed: MutableMap<String, Any?>,
         field: FieldDefinition,
         customDtos: List<CustomDtoDefinition>,
         keyPrefix: String
@@ -41,8 +41,14 @@ class Node1Executor(
         val fullKey = if (keyPrefix.isEmpty()) field.key else "$keyPrefix.${field.key}"
         val value = FlatMessageAccessor.get(parsed, fullKey)
 
-        if (field.mandatory && value == fieldStatus.NOKEY) {
-            throw IllegalArgumentException("Mandatory key '$fullKey' doesn't exist in field")
+        if (value == fieldStatus.NOKEY) {
+            if (field.mandatory) {
+                throw IllegalArgumentException("Mandatory key '$fullKey' doesn't exist in field")
+            }
+            if (field.defaultValue != null) {
+                FlatMessageAccessor.set(parsed, fullKey, convertDefaultValue(field))
+            }
+            return
         }
 
         if (!field.nullable && value == null) {
@@ -55,6 +61,20 @@ class Node1Executor(
             for (subField in customDto.fields) {
                 validateField(parsed, subField, customDtos, fullKey)
             }
+        }
+    }
+
+    private fun convertDefaultValue(field: FieldDefinition): Any? {
+        val raw = field.defaultValue ?: return null
+        return when (field.type) {
+            FieldType.STRING  -> raw
+            FieldType.INT     -> raw.toIntOrNull()
+                ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid INT for field '${field.key}'")
+            FieldType.DOUBLE  -> raw.toDoubleOrNull()
+                ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid DOUBLE for field '${field.key}'")
+            FieldType.BOOLEAN -> raw.toBooleanStrictOrNull()
+                ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid BOOLEAN for field '${field.key}'")
+            else -> null // LIST, MAP, CUSTOM: 기본값 자동 채움 미지원
         }
     }
 }
