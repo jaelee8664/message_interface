@@ -99,7 +99,13 @@ class MessagePipeline(
                     nodeEx?.failedNode?.errorResponse ?: node5.node5!!.defaultErrorConfig
                 val originalEx: Exception = nodeEx?.originalException ?: e
 
-                val errorResult = node5Executor.executeError(state.currentMap, errorResponse, originalEx, context.sessionVars)
+                val errorResult = try {
+                    node5Executor.executeError(state.currentMap, errorResponse, originalEx, context.sessionVars)
+                } catch (buildEx: Exception) {
+                    logError(context, unit.id, unit.name, NodeType.NODE5, buildEx)
+                    PipelineResult(body = null, httpStatus = 500, isSuccess = false)
+                }
+
                 if (errorResult.outputMap != null) {
                     logError(context, unit.id, unit.name, NodeType.NODE5, originalEx, errorResult.outputMap)
                 }

@@ -79,6 +79,20 @@ export function NodeErrorResponseEditor({
         </select>
       </div>
 
+      {/* XML Root Element */}
+      {value.messageFormat === 'XML' && (
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-slate-300">XML 루트 엘리먼트</label>
+          <input
+            type="text"
+            className="w-full px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            value={value.xmlRootElement ?? ''}
+            onChange={(e) => update({ xmlRootElement: e.target.value || undefined })}
+            placeholder="예: errorResponse (없으면 기본 태그 사용)"
+          />
+        </div>
+      )}
+
       {/* Fields */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">

@@ -202,6 +202,7 @@ export interface NodeErrorField {
 export interface NodeErrorResponse {
   messageFormat: MessageFormat
   fields: NodeErrorField[]
+  xmlRootElement?: string
 }
 
 export interface Node5Definition {

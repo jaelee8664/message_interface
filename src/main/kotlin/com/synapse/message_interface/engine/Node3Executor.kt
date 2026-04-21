@@ -102,7 +102,7 @@ class Node3Executor(private val scriptExecutor: JavaScriptExecutor) {
         val newItem = mutableMapOf<String, Any?>()
         for (m in itemMappings) {
             val v = FlatMessageAccessor.get(src, m.beforeKey)
-            FlatMessageAccessor.set(newItem, m.newKey, v)
+            if (v != fieldStatus.NOKEY) FlatMessageAccessor.set(newItem, m.newKey, v)
         }
         return newItem
     }

@@ -38,5 +38,6 @@ data class NodeErrorField(
  */
 data class NodeErrorResponse(
     val messageFormat: MessageFormat = MessageFormat.JSON,
-    val fields: List<NodeErrorField> = emptyList()
+    val fields: List<NodeErrorField> = emptyList(),
+    val xmlRootElement: String? = null,
 )

@@ -72,6 +72,6 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> exception.message ?: "알 수 없는 오류"
             }
         }
-        return Pair(parserRegistry.getParser(errorResponse.messageFormat).serialize(resultMap), resultMap)
+        return Pair(parserRegistry.getParser(errorResponse.messageFormat).serialize(resultMap, errorResponse.xmlRootElement), resultMap)
     }
 }
