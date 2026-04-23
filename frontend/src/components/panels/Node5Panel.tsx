@@ -10,6 +10,135 @@ import {
 import { NodeErrorResponseEditor } from './NodeErrorResponseSection'
 import { SessionVar, SessionVarSelect } from '../ui/SessionVarPicker'
 
+// ── Sample import helpers ─────────────────────────────────────────────────────
+
+function flattenJsonLeaves(obj: unknown, prefix = ''): string[] {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    return prefix ? [prefix] : []
+  }
+  const result: string[] = []
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${k}` : k
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      result.push(...flattenJsonLeaves(v, path))
+    } else {
+      result.push(path)
+    }
+  }
+  return result
+}
+
+function flattenXmlLeaves(el: Element, prefix = ''): string[] {
+  const result: string[] = []
+  for (const child of Array.from(el.children)) {
+    const path = prefix ? `${prefix}.${child.tagName}` : child.tagName
+    if (child.children.length > 0) {
+      result.push(...flattenXmlLeaves(child, path))
+    } else {
+      result.push(path)
+    }
+  }
+  return result
+}
+
+function parseSampleToFields(text: string, format: MessageFormat): NodeErrorField[] {
+  let paths: string[]
+  if (format === 'JSON') {
+    const json = JSON.parse(text)
+    if (typeof json !== 'object' || json === null || Array.isArray(json))
+      throw new Error('최상위 레벨은 JSON 객체({...})여야 합니다.')
+    paths = flattenJsonLeaves(json)
+  } else {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(text, 'application/xml')
+    if (doc.querySelector('parseerror')) throw new Error('XML 파싱 오류: 형식을 확인해주세요.')
+    paths = flattenXmlLeaves(doc.documentElement)
+  }
+  if (paths.length === 0) throw new Error('필드를 찾지 못했습니다. 샘플 형식을 확인해주세요.')
+  return paths.map(p => ({ key: p, source: 'FROM_MAP' as NodeErrorFieldSource, value: p }))
+}
+
+const SAMPLE_PLACEHOLDERS: Record<'JSON' | 'XML', string> = {
+  JSON: `{\n  "header": { "msgName": "RESPONSE" },\n  "data": { "result": "OK", "code": 0 }\n}`,
+  XML: `<MESSAGE>\n  <HEADER>\n    <MESSAGENAME>RESPONSE</MESSAGENAME>\n  </HEADER>\n  <DATA>\n    <RESULT>OK</RESULT>\n  </DATA>\n</MESSAGE>`,
+}
+
+function SampleImportSection({
+  messageFormat,
+  hasExistingFields,
+  onApply,
+}: {
+  messageFormat: MessageFormat
+  hasExistingFields: boolean
+  onApply: (fields: NodeErrorField[], mode: 'replace' | 'append') => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [sampleText, setSampleText] = useState('')
+  const [parseError, setParseError] = useState<string | null>(null)
+
+  const handleParse = (mode: 'replace' | 'append') => {
+    try {
+      setParseError(null)
+      const fields = parseSampleToFields(sampleText.trim(), messageFormat)
+      onApply(fields, mode)
+      setSampleText('')
+      setOpen(false)
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : '파싱 오류가 발생했습니다.')
+    }
+  }
+
+  return (
+    <div className="rounded border border-dashed border-slate-600 bg-slate-800/30">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 rounded"
+      >
+        <span className="font-medium">샘플에서 자동 생성</span>
+        <span>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-slate-700 pt-2">
+          <div className="text-xs text-slate-500">
+            {messageFormat} 응답 샘플을 붙여넣으면 모든 리프 필드를 <span className="text-cyan-400">FROM_MAP</span>으로 자동 등록합니다.
+          </div>
+          <textarea
+            value={sampleText}
+            onChange={e => { setSampleText(e.target.value); setParseError(null) }}
+            placeholder={SAMPLE_PLACEHOLDERS[messageFormat as 'JSON' | 'XML'] ?? ''}
+            className="w-full h-36 px-2 py-1.5 text-xs font-mono rounded bg-slate-900 border border-slate-600 text-slate-300 resize-y focus:outline-none focus:border-blue-500"
+          />
+          {parseError && <div className="text-xs text-red-400">{parseError}</div>}
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => handleParse(hasExistingFields ? 'append' : 'replace')}
+              disabled={!sampleText.trim()}
+              className="px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 text-white disabled:opacity-40"
+            >
+              {hasExistingFields ? '+ 추가' : '자동 생성'}
+            </button>
+            {hasExistingFields && (
+              <button
+                onClick={() => handleParse('replace')}
+                disabled={!sampleText.trim()}
+                className="px-3 py-1.5 text-xs rounded bg-amber-700 hover:bg-amber-600 text-white disabled:opacity-40"
+              >
+                교체
+              </button>
+            )}
+          </div>
+          {hasExistingFields && (
+            <div className="text-xs text-slate-500">
+              <span className="text-emerald-400">+ 추가</span>: 기존 필드에 병합 &nbsp;|&nbsp;
+              <span className="text-amber-400">교체</span>: 기존 필드 전체 교체
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface Props {
   definition: Node5Definition | undefined
   onChange: (def: Node5Definition) => void
@@ -122,6 +251,16 @@ function SuccessConfigEditor({
   const addField = () =>
     update({ fields: [...config.fields, { key: '', source: 'LITERAL', value: '' }] })
 
+  const handleSampleImport = (fields: NodeErrorField[], mode: 'replace' | 'append') => {
+    if (mode === 'replace') {
+      update({ fields })
+    } else {
+      const existingKeys = new Set(config.fields.map(f => f.key))
+      const newFields = fields.filter(f => !existingKeys.has(f.key))
+      update({ fields: [...config.fields, ...newFields] })
+    }
+  }
+
   const updateField = (idx: number, partial: Partial<NodeErrorField>) => {
     const next = config.fields.map((f, i) => (i === idx ? { ...f, ...partial } : f))
     update({ fields: next })
@@ -223,9 +362,15 @@ function SuccessConfigEditor({
               </button>
             </div>
 
+            <SampleImportSection
+              messageFormat={config.messageFormat}
+              hasExistingFields={config.fields.length > 0}
+              onApply={handleSampleImport}
+            />
+
             {config.fields.length === 0 && (
               <p className="text-xs text-slate-500">
-                필드를 추가하면 body가 생성됩니다. 없으면 빈 body가 전송됩니다.
+                필드를 추가하거나 샘플에서 자동 생성하세요.
               </p>
             )}
 
@@ -269,7 +414,7 @@ function SuccessConfigEditor({
                     className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                     value={field.value}
                     onChange={(e) => updateField(idx, { value: e.target.value })}
-                    placeholder={field.source === 'LITERAL' ? '고정 문자열 값' : 'currentMap 키 (예: couponId)'}
+                    placeholder={field.source === 'LITERAL' ? '고정 문자열 값' : 'currentMap 키 (예: header.msgName)'}
                   />
                 )}
               </div>

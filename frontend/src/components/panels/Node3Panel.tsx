@@ -561,15 +561,17 @@ const Node3Panel = forwardRef<Node3PanelHandle, Props>(function Node3Panel({ def
       <div className="space-y-1">
         {def.mappings.map((m, i) => (
           <div key={i} className="px-2 py-1.5 rounded bg-slate-700 border border-slate-600 text-xs">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-green-300 font-mono">{m.newKey}</span>
-                <span className="text-slate-500 mx-1">&larr;</span>
-                <span className="text-blue-300 font-mono">{m.beforeKey}</span>                {upstreamNode1 && (
-                  <span className="text-xs text-slate-400 ml-2 truncate" title={formatRowKeyInfo(m.beforeKey, upstreamNode1)}>
+            <div className="flex items-center justify-between gap-1 min-w-0">
+              <div className="min-w-0 overflow-hidden flex items-center flex-wrap gap-x-1">
+                <span className="text-green-300 font-mono truncate max-w-[120px]" title={m.newKey}>{m.newKey}</span>
+                <span className="text-slate-500 shrink-0">&larr;</span>
+                <span className="text-blue-300 font-mono truncate max-w-[120px]" title={m.beforeKey}>{m.beforeKey}</span>
+                {upstreamNode1 && (
+                  <span className="text-xs text-slate-400 truncate" title={formatRowKeyInfo(m.beforeKey, upstreamNode1)}>
                     {formatRowKeyInfo(m.beforeKey, upstreamNode1)}
                   </span>
-                )}              </div>
+                )}
+              </div>
               <div className="flex gap-1">
                 <button onClick={() => { setEditingMapping(m); setEditingIndex(i) }} className="text-slate-400 hover:text-white px-1">&#9999;&#65039;</button>
                 <button onClick={() => onChange({ ...def, mappings: def.mappings.filter((_, j) => j !== i) })} className="text-slate-400 hover:text-red-400 px-1">&#10005;</button>

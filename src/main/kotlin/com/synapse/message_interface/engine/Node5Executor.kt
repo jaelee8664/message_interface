@@ -47,12 +47,14 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
         if (config.fields.isEmpty()) return Pair(ByteArray(0), emptyMap())
         val resultMap = mutableMapOf<String, Any?>()
         for (field in config.fields) {
-            resultMap[field.key] = when (field.source) {
-                NodeErrorFieldSource.LITERAL          -> field.value
-                NodeErrorFieldSource.FROM_MAP         -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
-                NodeErrorFieldSource.FROM_SESSION_VAR -> sessionVars[field.value]
+            if (field.key.isBlank()) continue
+            val value: Any? = when (field.source) {
+                NodeErrorFieldSource.LITERAL           -> field.value
+                NodeErrorFieldSource.FROM_MAP          -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
+                NodeErrorFieldSource.FROM_SESSION_VAR  -> sessionVars[field.value]
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> null  // not applicable for success
             }
+            FlatMessageAccessor.set(resultMap, field.key, value)
         }
         return Pair(parserRegistry.getParser(config.messageFormat).serialize(resultMap, config.xmlRootElement), resultMap)
     }
@@ -65,12 +67,14 @@ class Node5Executor(private val parserRegistry: MessageParserRegistry) {
     ): Pair<ByteArray?, Map<String, Any?>> {
         val resultMap = mutableMapOf<String, Any?>()
         for (field in errorResponse.fields) {
-            resultMap[field.key] = when (field.source) {
-                NodeErrorFieldSource.LITERAL          -> field.value
-                NodeErrorFieldSource.FROM_MAP         -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
-                NodeErrorFieldSource.FROM_SESSION_VAR -> sessionVars[field.value]
+            if (field.key.isBlank()) continue
+            val value: Any? = when (field.source) {
+                NodeErrorFieldSource.LITERAL           -> field.value
+                NodeErrorFieldSource.FROM_MAP          -> FlatMessageAccessor.get(data, field.value).takeUnless { it == fieldStatus.NOKEY }
+                NodeErrorFieldSource.FROM_SESSION_VAR  -> sessionVars[field.value]
                 NodeErrorFieldSource.EXCEPTION_MESSAGE -> exception.message ?: "알 수 없는 오류"
             }
+            FlatMessageAccessor.set(resultMap, field.key, value)
         }
         return Pair(parserRegistry.getParser(errorResponse.messageFormat).serialize(resultMap, errorResponse.xmlRootElement), resultMap)
     }
