@@ -259,6 +259,20 @@ interface FieldEditorProps {
   saveDisabled?: boolean
 }
 
+function typeDefaultHint(type: FieldType, nullable: boolean): string {
+  if (nullable) return '미입력 시 기본값: null  (nullable 필드는 null이 우선)'
+  switch (type) {
+    case 'STRING':  return '미입력 시 기본값: "" (빈 문자열)'
+    case 'INT':     return '미입력 시 기본값: 0'
+    case 'DOUBLE':  return '미입력 시 기본값: 0.0'
+    case 'BOOLEAN': return '미입력 시 기본값: false'
+    case 'LIST':    return '미입력 시 기본값: [] (빈 리스트)'
+    case 'MAP':     return '미입력 시 기본값: {} (빈 맵)'
+    case 'CUSTOM':  return '미입력 시 기본값: null (CUSTOM 타입은 자동 기본값 미지원)'
+    default:        return ''
+  }
+}
+
 function FieldEditor({ field, customDtoNames, onChange, onSave, onCancel, saveDisabled }: FieldEditorProps) {
   return (
     <div className="mt-3 p-3 rounded bg-slate-800 border border-blue-500 space-y-3">
@@ -342,7 +356,8 @@ function FieldEditor({ field, customDtoNames, onChange, onSave, onCancel, saveDi
         label="기본값"
         value={field.defaultValue ?? ''}
         onChange={(e) => onChange({ ...field, defaultValue: e.target.value || undefined })}
-        placeholder="비어있으면 타입 기본값 사용"
+        placeholder="직접 지정하지 않으면 아래 기본값 적용"
+        hint={typeDefaultHint(field.type, field.nullable)}
       />
       <InputField
         label="설명 (필수)"
@@ -355,6 +370,7 @@ function FieldEditor({ field, customDtoNames, onChange, onSave, onCancel, saveDi
           label="Nullable"
           checked={field.nullable}
           onChange={(v) => onChange({ ...field, nullable: v })}
+          hint="키가 없을 때 기본값이 null이 됩니다"
         />
         <CheckboxField
           label="필수 (Mandatory)"
