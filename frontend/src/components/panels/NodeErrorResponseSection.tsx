@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { MessageFormat, NodeErrorField, NodeErrorFieldSource, NodeErrorResponse } from '../../types/workflow'
 import { SessionVar, SessionVarSelect } from '../ui/SessionVarPicker'
-import { buildNestedPreview } from '../../utils/node5Preview'
+import { buildNestedPreview, parseSampleToFields, SAMPLE_PLACEHOLDERS } from '../../utils/node5Preview'
 
 const DEFAULT_ERROR_RESPONSE: NodeErrorResponse = {
   messageFormat: 'JSON',
@@ -20,6 +20,82 @@ const SOURCE_OPTIONS: { value: NodeErrorFieldSource; label: string }[] = [
   { value: 'EXCEPTION_MESSAGE', label: '예외 메세지' },
 ]
 
+
+function SampleImportSection({
+  messageFormat,
+  hasExistingFields,
+  onApply,
+}: {
+  messageFormat: MessageFormat
+  hasExistingFields: boolean
+  onApply: (fields: NodeErrorField[], mode: 'replace' | 'append') => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [sampleText, setSampleText] = useState('')
+  const [parseError, setParseError] = useState<string | null>(null)
+
+  const handleParse = (mode: 'replace' | 'append') => {
+    try {
+      setParseError(null)
+      const fields = parseSampleToFields(sampleText.trim(), messageFormat)
+      onApply(fields, mode)
+      setSampleText('')
+      setOpen(false)
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : '파싱 오류가 발생했습니다.')
+    }
+  }
+
+  return (
+    <div className="rounded border border-dashed border-slate-600 bg-slate-800/30">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 rounded"
+      >
+        <span className="font-medium">샘플에서 자동 생성</span>
+        <span>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-slate-700 pt-2">
+          <div className="text-xs text-slate-500">
+            {messageFormat} 응답 샘플을 붙여넣으면 모든 리프 필드를 <span className="text-cyan-400">FROM_MAP</span>으로 자동 등록합니다.
+          </div>
+          <textarea
+            value={sampleText}
+            onChange={e => { setSampleText(e.target.value); setParseError(null) }}
+            placeholder={SAMPLE_PLACEHOLDERS[messageFormat as 'JSON' | 'XML'] ?? ''}
+            className="w-full h-36 px-2 py-1.5 text-xs font-mono rounded bg-slate-900 border border-slate-600 text-slate-300 resize-y focus:outline-none focus:border-blue-500"
+          />
+          {parseError && <div className="text-xs text-red-400">{parseError}</div>}
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => handleParse(hasExistingFields ? 'append' : 'replace')}
+              disabled={!sampleText.trim()}
+              className="px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 text-white disabled:opacity-40"
+            >
+              {hasExistingFields ? '+ 추가' : '자동 생성'}
+            </button>
+            {hasExistingFields && (
+              <button
+                onClick={() => handleParse('replace')}
+                disabled={!sampleText.trim()}
+                className="px-3 py-1.5 text-xs rounded bg-amber-700 hover:bg-amber-600 text-white disabled:opacity-40"
+              >
+                교체
+              </button>
+            )}
+          </div>
+          {hasExistingFields && (
+            <div className="text-xs text-slate-500">
+              <span className="text-emerald-400">+ 추가</span>: 기존 필드에 병합 &nbsp;|&nbsp;
+              <span className="text-amber-400">교체</span>: 기존 필드 전체 교체
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Editor for NodeErrorResponse fields (always-visible; used inside Node5Panel). */
 export function NodeErrorResponseEditor({
@@ -45,6 +121,16 @@ export function NodeErrorResponseEditor({
 
   const removeField = (idx: number) =>
     update({ fields: value.fields.filter((_, i) => i !== idx) })
+
+  const handleSampleImport = (fields: NodeErrorField[], mode: 'replace' | 'append') => {
+    if (mode === 'replace') {
+      update({ fields })
+    } else {
+      const existingKeys = new Set(value.fields.map(f => f.key))
+      const newFields = fields.filter(f => !existingKeys.has(f.key))
+      update({ fields: [...value.fields, ...newFields] })
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -88,8 +174,14 @@ export function NodeErrorResponseEditor({
           </button>
         </div>
 
+        <SampleImportSection
+          messageFormat={value.messageFormat}
+          hasExistingFields={value.fields.length > 0}
+          onApply={handleSampleImport}
+        />
+
         {value.fields.length === 0 && (
-          <p className="text-xs text-slate-500">오류 응답에 포함할 필드를 추가하세요. 없으면 빈 body가 반환됩니다.</p>
+          <p className="text-xs text-slate-500">필드를 추가하거나 샘플에서 자동 생성하세요.</p>
         )}
 
         {value.fields.map((field, idx) => (
