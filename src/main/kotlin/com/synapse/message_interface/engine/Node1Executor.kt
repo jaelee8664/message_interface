@@ -45,7 +45,7 @@ class Node1Executor(
             if (field.mandatory) {
                 throw IllegalArgumentException("Mandatory key '$fullKey' doesn't exist in field")
             }
-            FlatMessageAccessor.set(parsed, fullKey, convertDefaultValue(field))
+            FlatMessageAccessor.set(parsed, fullKey, if (field.nullable) null else convertDefaultValue(field))
             return
         }
 
