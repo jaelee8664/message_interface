@@ -644,8 +644,12 @@ const Node3Panel = forwardRef<Node3PanelHandle, Props>(function Node3Panel({ def
                     className="text-xs px-2 py-0.5 rounded bg-teal-700 hover:bg-teal-600 text-white"
                   >+ 필드</button>
                 </div>
+                <p className="text-xs text-slate-500">
+                  미설정 시 원소의 모든 필드가 그대로 통과됩니다.
+                  하나라도 설정하면 <span className="text-yellow-500">설정한 필드만</span> 출력됩니다.
+                </p>
                 {(editingMapping.itemMappings ?? []).length === 0 ? (
-                  <p className="text-xs text-slate-600 py-1">각 원소의 필드 키를 변환합니다 (예: id → Id)</p>
+                  <p className="text-xs text-slate-600 py-1">예: id → itemId, name → label</p>
                 ) : (
                   <div className="space-y-1">
                     {(editingMapping.itemMappings ?? []).map((m, idx) => (
