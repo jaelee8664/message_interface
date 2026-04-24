@@ -45,9 +45,7 @@ class Node1Executor(
             if (field.mandatory) {
                 throw IllegalArgumentException("Mandatory key '$fullKey' doesn't exist in field")
             }
-            if (field.defaultValue != null) {
-                FlatMessageAccessor.set(parsed, fullKey, convertDefaultValue(field))
-            }
+            FlatMessageAccessor.set(parsed, fullKey, convertDefaultValue(field))
             return
         }
 
@@ -65,16 +63,24 @@ class Node1Executor(
     }
 
     private fun convertDefaultValue(field: FieldDefinition): Any? {
-        val raw = field.defaultValue ?: return null
+        val raw = field.defaultValue
         return when (field.type) {
-            FieldType.STRING  -> raw
-            FieldType.INT     -> raw.toIntOrNull()
-                ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid INT for field '${field.key}'")
-            FieldType.DOUBLE  -> raw.toDoubleOrNull()
-                ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid DOUBLE for field '${field.key}'")
-            FieldType.BOOLEAN -> raw.toBooleanStrictOrNull()
-                ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid BOOLEAN for field '${field.key}'")
-            else -> null // LIST, MAP, CUSTOM: 기본값 자동 채움 미지원
+            FieldType.STRING  -> raw ?: ""
+            FieldType.INT     -> if (raw != null)
+                raw.toIntOrNull()
+                    ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid INT for field '${field.key}'")
+                else 0
+            FieldType.DOUBLE  -> if (raw != null)
+                raw.toDoubleOrNull()
+                    ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid DOUBLE for field '${field.key}'")
+                else 0.0
+            FieldType.BOOLEAN -> if (raw != null)
+                raw.toBooleanStrictOrNull()
+                    ?: throw IllegalArgumentException("defaultValue '$raw' is not a valid BOOLEAN for field '${field.key}'")
+                else false
+            FieldType.LIST    -> mutableListOf<Any?>()
+            FieldType.MAP     -> mutableMapOf<String, Any?>()
+            FieldType.CUSTOM  -> null
         }
     }
 }
