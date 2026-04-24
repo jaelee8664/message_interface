@@ -9,6 +9,7 @@ import {
 } from '../../types/workflow'
 import { NodeErrorResponseEditor } from './NodeErrorResponseSection'
 import { SessionVar, SessionVarSelect } from '../ui/SessionVarPicker'
+import { buildNestedPreview } from '../../utils/node5Preview'
 
 // ── Sample import helpers ─────────────────────────────────────────────────────
 
@@ -191,20 +192,7 @@ const SUCCESS_SOURCE_OPTIONS: { value: NodeErrorFieldSource; label: string }[] =
 // ── Success field preview ─────────────────────────────────────────────────────
 
 function buildSuccessPreviewJson(fields: NodeErrorField[]): string {
-  if (fields.length === 0) return '(빈 body — 필드를 추가하면 body가 생성됩니다)'
-  const lines: string[] = []
-  fields.forEach((f, i) => {
-    if (!f.key) return
-    const comma = i < fields.length - 1 ? ',' : ''
-    const valueStr =
-      f.source === 'LITERAL'
-        ? `"${f.value}"`
-        : f.source === 'FROM_SESSION_VAR'
-        ? `"(sessionVars["${f.value}"])"`
-        : `"(currentMap["${f.value}"])"`
-    lines.push(`  "${f.key}": ${valueStr}${comma}`)
-  })
-  return lines.length === 0 ? '(빈 body)' : `{\n${lines.join('\n')}\n}`
+  return buildNestedPreview(fields)
 }
 
 function SuccessFieldPreview({ fields }: { fields: NodeErrorField[] }) {

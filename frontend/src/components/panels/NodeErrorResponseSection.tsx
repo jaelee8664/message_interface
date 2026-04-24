@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MessageFormat, NodeErrorField, NodeErrorFieldSource, NodeErrorResponse } from '../../types/workflow'
 import { SessionVar, SessionVarSelect } from '../ui/SessionVarPicker'
+import { buildNestedPreview } from '../../utils/node5Preview'
 
 const DEFAULT_ERROR_RESPONSE: NodeErrorResponse = {
   messageFormat: 'JSON',
@@ -19,24 +20,6 @@ const SOURCE_OPTIONS: { value: NodeErrorFieldSource; label: string }[] = [
   { value: 'EXCEPTION_MESSAGE', label: '예외 메세지' },
 ]
 
-function buildPreviewLines(fields: NodeErrorField[]): string {
-  if (fields.length === 0) return '(필드 없음)'
-  const lines: string[] = []
-  fields.forEach((f, i) => {
-    if (!f.key) return
-    const comma = i < fields.length - 1 ? ',' : ''
-    const valueStr =
-      f.source === 'LITERAL'
-        ? `"${f.value}"`
-        : f.source === 'FROM_MAP'
-        ? `"(currentMap["${f.value}"])"`
-        : f.source === 'FROM_SESSION_VAR'
-        ? `"(sessionVars["${f.value}"])"`
-        : '"(예외 메세지)"'
-    lines.push(`  "${f.key}": ${valueStr}${comma}`)
-  })
-  return `{\n${lines.join('\n')}\n}`
-}
 
 /** Editor for NodeErrorResponse fields (always-visible; used inside Node5Panel). */
 export function NodeErrorResponseEditor({
@@ -149,7 +132,7 @@ export function NodeErrorResponseEditor({
                 className="w-full px-2 py-1 text-xs rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 value={field.value}
                 onChange={(e) => updateField(idx, { value: e.target.value })}
-                placeholder={field.source === 'LITERAL' ? '고정 문자열 값' : 'currentMap 키 (예: couponId)'}
+                placeholder={field.source === 'LITERAL' ? '고정 문자열 값' : 'currentMap 키 (예: header.msgName)'}
               />
             ) : (
               <p className="text-xs text-slate-500 px-1">예외 메세지가 자동으로 주입됩니다.</p>
@@ -170,7 +153,7 @@ export function NodeErrorResponseEditor({
         {previewOpen && (
           <div className="border-t border-slate-700 px-3 py-2 bg-slate-900/50">
             <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
-              {buildPreviewLines(value.fields)}
+              {buildNestedPreview(value.fields, '(필드 없음)')}
             </pre>
             <p className="mt-1 text-xs text-slate-500">
               * FROM_MAP 값은 오류 발생 시점의 currentMap에서 가져옵니다. 키가 없으면 해당 필드는 null이 됩니다.
