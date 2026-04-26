@@ -4,7 +4,6 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeoutOrNull
 import org.graalvm.polyglot.Context
 import org.graalvm.polyglot.Engine
-import org.graalvm.polyglot.Source
 import org.springframework.stereotype.Component
 
 class ScriptExecutionTimeoutException(message: String) : RuntimeException(message)
@@ -38,10 +37,7 @@ class JavaScriptExecutor {
             runInterruptible {
                 val context = threadLocalContext.get()
                 try {
-                    val source = Source.newBuilder("js", buildEmbeddedCode(templateCode, toJsonString(vars)), "exec")
-                        .cached(false)
-                        .build()
-                    convertValue(context.eval(source))
+                        convertValue(context.eval("js", buildEmbeddedCode(templateCode, toJsonString(vars))))
                 } catch (e: OutOfMemoryError) {
                     closeAndReset(context)
                     throw ScriptExecutionException("스크립트 메모리 한도 초과", e)
