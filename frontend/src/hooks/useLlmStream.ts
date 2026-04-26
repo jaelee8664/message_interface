@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { authFetch } from '../utils/authFetch'
 
 export interface CodeSuggestReq {
   prompt: string
@@ -79,7 +80,7 @@ export function useLlmStream() {
     abortRef.current = ctrl
     setStreaming(true)
     try {
-      const res = await fetch('/synapse/llm/code-suggest', {
+      const res = await authFetch('/synapse/llm/code-suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -103,7 +104,7 @@ export function useLlmStream() {
     setStreaming(true)
     let result = ''
     try {
-      const res = await fetch('/synapse/llm/chat', {
+      const res = await authFetch('/synapse/llm/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
