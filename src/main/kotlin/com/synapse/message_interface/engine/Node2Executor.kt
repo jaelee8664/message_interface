@@ -60,12 +60,11 @@ class Node2Executor(private val scriptExecutor: JavaScriptExecutor) {
             val outerFlat = FlatMessageAccessor.flatten(result)
 
             @Suppress("UNCHECKED_CAST")
-            val transformedList = listVal.mapIndexed { idx, item ->
+            val transformedList = listVal.map { item ->
                 when (item) {
                     is Map<*, *> -> {
                         val mutableItem = (item as Map<String, Any?>).toMutableMap()
                         val vars = (outerFlat + FlatMessageAccessor.flatten(mutableItem, "el")).toMutableMap()
-                        println("[LIST-DEBUG] idx=$idx  item=$mutableItem  el.toLocation=${vars["el.toLocation"]}")
                         for (fieldRule in rule.fieldRules) {
                             val scriptResult = try {
                                 scriptExecutor.executeTemplate(fieldRule.code, vars)
@@ -74,7 +73,6 @@ class Node2Executor(private val scriptExecutor: JavaScriptExecutor) {
                                     "리스트 아이템 커스텀 코드 실행 오류 (listKey=${rule.listKey}, field=${fieldRule.fieldKey}): ${e.message}", e
                                 )
                             }
-                            println("[LIST-DEBUG] idx=$idx  field=${fieldRule.fieldKey}  scriptResult=$scriptResult")
                             val finalValue = if (fieldRule.afterType != null) {
                                 convertType(scriptResult ?: "", fieldRule.afterType, fieldRule.fieldKey)
                             } else scriptResult
