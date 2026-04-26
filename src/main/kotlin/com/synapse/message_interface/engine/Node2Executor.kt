@@ -51,6 +51,61 @@ class Node2Executor(private val scriptExecutor: JavaScriptExecutor) {
             FlatMessageAccessor.set(result, rule.key, finalValue)
         }
 
+        // 4. List item code rules
+        for (rule in definition.listItemCodeRules) {
+            if (rule.fieldRules.isEmpty()) continue
+            val listVal = FlatMessageAccessor.get(result, rule.listKey)
+            if (listVal !is List<*>) continue
+
+            val outerFlat = FlatMessageAccessor.flatten(result)
+
+            @Suppress("UNCHECKED_CAST")
+            val transformedList = listVal.map { item ->
+                when (item) {
+                    is Map<*, *> -> {
+                        val mutableItem = (item as Map<String, Any?>).toMutableMap()
+                        val vars = (outerFlat + FlatMessageAccessor.flatten(mutableItem, "el")).toMutableMap()
+                        for (fieldRule in rule.fieldRules) {
+                            val scriptResult = try {
+                                scriptExecutor.executeTemplate(fieldRule.code, vars)
+                            } catch (e: Exception) {
+                                throw CustomValueTransformException(
+                                    "리스트 아이템 커스텀 코드 실행 오류 (listKey=${rule.listKey}, field=${fieldRule.fieldKey}): ${e.message}", e
+                                )
+                            }
+                            val finalValue = if (fieldRule.afterType != null) {
+                                convertType(scriptResult ?: "", fieldRule.afterType, fieldRule.fieldKey)
+                            } else scriptResult
+                            if (fieldRule.fieldKey.isNotEmpty()) {
+                                mutableItem[fieldRule.fieldKey] = finalValue
+                                vars["el.${fieldRule.fieldKey}"] = finalValue
+                            }
+                        }
+                        mutableItem
+                    }
+                    else -> {
+                        val vars: Map<String, Any?> = outerFlat + mapOf("el" to item)
+                        var current: Any? = item
+                        for (fieldRule in rule.fieldRules) {
+                            val scriptResult = try {
+                                scriptExecutor.executeTemplate(fieldRule.code, vars)
+                            } catch (e: Exception) {
+                                throw CustomValueTransformException(
+                                    "리스트 아이템 커스텀 코드 실행 오류 (listKey=${rule.listKey}): ${e.message}", e
+                                )
+                            }
+                            current = if (fieldRule.afterType != null) {
+                                convertType(scriptResult ?: "", fieldRule.afterType, "el")
+                            } else scriptResult
+                        }
+                        current
+                    }
+                }
+            }
+
+            FlatMessageAccessor.set(result, rule.listKey, transformedList)
+        }
+
         return result
     }
 

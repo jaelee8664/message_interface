@@ -3,7 +3,7 @@ import { useLlmStream } from '../../hooks/useLlmStream'
 
 interface Props {
   nodeType: 'NODE2' | 'NODE3'
-  codeType: 'CUSTOM_CODE' | 'FILTER_CODE' | 'EXPR' | 'ADD_CONDITION'
+  codeType: 'CUSTOM_CODE' | 'LIST_ITEM_CODE' | 'FILTER_CODE' | 'EXPR' | 'ADD_CONDITION'
   existingCode?: string
   unitId?: string
   fieldKey?: string   // 현재 편집 중인 필드 키 — LLM에 {$fieldKey} 힌트 제공
@@ -12,6 +12,7 @@ interface Props {
 
 const CODE_TYPE_LABELS: Record<string, string> = {
   CUSTOM_CODE: '커스텀 코드',
+  LIST_ITEM_CODE: '원소 변환 코드',
   FILTER_CODE: '필터 코드',
   EXPR: '표현식',
   ADD_CONDITION: '추가 조건',
@@ -126,8 +127,9 @@ export default function CodeAiAssist({ nodeType, codeType, existingCode, unitId,
 }
 
 const PLACEHOLDER: Record<string, string> = {
-  CUSTOM_CODE: '예: body.status가 200이면 "SUCCESS", 아니면 "FAIL"',
-  FILTER_CODE: '예: el.qty가 0보다 크고 el.active가 true인 항목만',
-  EXPR:        '예: body.userId와 현재 timestamp를 합친 객체',
-  ADD_CONDITION: '예: items 배열이 비어 있을 때만 추가',
+  CUSTOM_CODE:    '예: body.status가 200이면 "SUCCESS", 아니면 "FAIL"',
+  LIST_ITEM_CODE: '예: id 필드를 문자열로 변환, price에 10% 세율 적용',
+  FILTER_CODE:    '예: qty가 0보다 크고 active가 true인 항목만',
+  EXPR:           '예: body.userId와 현재 timestamp를 합친 객체',
+  ADD_CONDITION:  '예: items 배열이 비어 있을 때만 추가',
 }

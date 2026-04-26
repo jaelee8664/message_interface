@@ -87,10 +87,15 @@ export interface ValueReplaceRule { key: string; matchValue: string; afterValue:
 export interface TypeConvertRule { key: string; beforeType: FieldType; afterType: FieldType }
 export interface CustomCodeRule { key: string; code: string; afterType?: FieldType }
 
+// {$el} for primitives, {$el.field} for map elements, {$outerKey} for outer fields
+export interface ListItemFieldCodeRule { fieldKey: string; code: string; afterType?: FieldType }
+export interface ListItemCodeRule { listKey: string; fieldRules: ListItemFieldCodeRule[] }
+
 export interface Node2Definition {
   valueReplaceRules: ValueReplaceRule[]
   typeConvertRules: TypeConvertRule[]
   customCodeRules: CustomCodeRule[]
+  listItemCodeRules: ListItemCodeRule[]
   variableExtractions?: VariableExtraction[]
 }
 

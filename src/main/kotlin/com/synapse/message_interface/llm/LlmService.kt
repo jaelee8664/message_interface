@@ -128,8 +128,20 @@ You are a JavaScript list-filter expression generator for a message transformati
 Output ONLY the raw boolean JavaScript expression. No explanation. No markdown. No code fences.
 Rules:
 - Single boolean expression that returns true (keep) or false (discard).
-- `el` = current list element. For object elements use el.fieldName; for primitives use el directly.
-- Access outer DTO fields using {${'$'}fieldName} placeholder.
+- {${'$'}el} = current list element (primitive value). {${'$'}el.fieldName} = field of current list element (map/object).
+- Access outer DTO fields using {${'$'}fieldName} placeholder (e.g. {${'$'}body.threshold}).
+- Forbidden: java. / Packages. / Java.type
+$fieldSection
+""".trimIndent()
+
+            "LIST_ITEM_CODE" -> """
+You are a JavaScript expression generator for transforming individual list element fields in a message pipeline.
+Output ONLY the raw JavaScript expression. No explanation. No markdown. No code fences.
+Rules:
+- Single expression only. No statements (no if/var/let/const/return).
+- {${'$'}el} = the current list element (use for primitive elements like numbers/strings).
+- {${'$'}el.fieldName} = a field of the current list element (use for map/object elements).
+- Access outer DTO fields using {${'$'}outerFieldKey} placeholder (e.g. {${'$'}body.divisor}).
 - Forbidden: java. / Packages. / Java.type
 $fieldSection
 """.trimIndent()
@@ -162,9 +174,14 @@ $fieldSection
     private fun buildUserTurn(req: LlmCodeSuggestRequest): String {
         // 편집 중인 필드 키가 있으면 모델에게 플레이스홀더 형식을 명시적으로 알려준다.
         // 소형 로컬 모델은 "어느 필드를 써야 하는지" 힌트가 없으면 잘못된 값만 반환하는 경우가 많다.
-        val keyHint = req.fieldKey?.takeIf { it.isNotBlank() }
-            ?.let { "Target output field key: $it — reference it as {\$${it}} in your expression.\n" }
-            ?: ""
+        val keyHint = req.fieldKey?.takeIf { it.isNotBlank() }?.let { key ->
+            when (req.codeType) {
+                "LIST_ITEM_CODE" ->
+                    "Element field being transformed: $key — reference it as {\$el.$key} for map elements, or {\$el} for primitives.\n"
+                else ->
+                    "Target output field key: $key — reference it as {\$${key}} in your expression.\n"
+            }
+        } ?: ""
         return if (!req.existingCode.isNullOrBlank())
             "${keyHint}Existing code: ${req.existingCode}\nRequest: ${req.prompt}"
         else
@@ -197,19 +214,19 @@ $fieldSection
 
         "FILTER_CODE" -> listOf(
             "qty가 0보다 큰 항목만 통과"
-                to "el.qty > 0",
+                to "{${'$'}el.qty} > 0",
 
             "status가 \"ACTIVE\"인 항목만"
-                to """el.status === "ACTIVE"""",
+                to """{${'$'}el.status} === "ACTIVE"""",
 
             "deleted가 false이거나 없는 항목만"
-                to "el.deleted === false || el.deleted == null",
+                to "{${'$'}el.deleted} === false || {${'$'}el.deleted} == null",
 
             "amount가 외부 threshold 필드 이상인 항목만"
-                to "el.amount >= {${'$'}body.threshold}",
+                to "{${'$'}el.amount} >= {${'$'}body.threshold}",
 
             "원시값 리스트에서 100 초과인 숫자만"
-                to "el > 100",
+                to "{${'$'}el} > 100",
         )
 
         "EXPR" -> listOf(
@@ -224,6 +241,26 @@ $fieldSection
 
             "items 배열의 첫 번째 원소"
                 to "{${'$'}body.items}[0]",
+        )
+
+        "LIST_ITEM_CODE" -> listOf(
+            "id를 문자열로 변환"
+                to "String({${'$'}el.id})",
+
+            "name 필드를 소문자로 변환"
+                to "{${'$'}el.name}.toLowerCase()",
+
+            "price에 세율 10% 적용"
+                to "{${'$'}el.price} * 1.1",
+
+            "원시 숫자 원소를 2배로"
+                to "{${'$'}el} * 2",
+
+            "score가 1 이상인지 여부 (boolean)"
+                to "{${'$'}el.score} >= 1",
+
+            "외부 divisor로 amount를 나눈 값"
+                to "{${'$'}el.amount} / {${'$'}body.divisor}",
         )
 
         "ADD_CONDITION" -> listOf(

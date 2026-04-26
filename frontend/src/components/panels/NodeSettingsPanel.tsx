@@ -138,7 +138,13 @@ export default function NodeSettingsPanel() {
             )
           })()}
           {editingNode.nodeType === 'NODE2' && (
-            <Node2Panel definition={editingNode.node2} onChange={updateDefinition} unitId={activeUnit.id} />
+            <Node2Panel
+              definition={editingNode.node2}
+              onChange={updateDefinition}
+              unitId={activeUnit.id}
+              currentNodeId={editingNode.id}
+              unit={activeUnit}
+            />
           )}
           {editingNode.nodeType === 'NODE3' && (
             <Node3Panel
