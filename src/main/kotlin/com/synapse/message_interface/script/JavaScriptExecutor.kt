@@ -25,13 +25,11 @@ class JavaScriptExecutor {
             .build()
     }
 
-    // 스레드별 컴파일된 함수 캐시 — Context 재생성 시 함께 초기화
-    private val threadLocalFnCache = ThreadLocal.withInitial { mutableMapOf<String, org.graalvm.polyglot.Value>() }
-
     /**
      * 사용자가 작성한 JS 템플릿 코드({$key} 포함)를 실행.
-     * vars를 JSON 문자열로 직렬화 후 함수 파라미터로 전달 → JSON.parse로 네이티브 JS 객체 생성.
-     * 이 방식으로 Source 캐싱 문제(리스트 원소 간 결과 공유)와 Java String 타입 문제를 동시에 해결.
+     * vars JSON을 소스코드에 직접 임베드한 뒤 context.eval()로 실행한다.
+     * fn.execute(arg) 방식은 OpenJDK 환경의 GraalVM에서 두 번째 호출 시
+     * 첫 번째 인자가 재사용되는 버그가 있어 리스트 원소 간 결과가 동일해지는 현상이 발생한다.
      */
     suspend fun executeTemplate(templateCode: String, vars: Map<String, Any?>, timeoutMs: Long = 3000L): Any? {
         validateImports(templateCode)
@@ -40,13 +38,10 @@ class JavaScriptExecutor {
             runInterruptible {
                 val context = threadLocalContext.get()
                 try {
-                    val fn = threadLocalFnCache.get().getOrPut(templateCode) {
-                        val source = Source.newBuilder("js", buildFnCode(templateCode), "fn")
-                            .cached(false)
-                            .build()
-                        context.eval(source)
-                    }
-                    convertValue(fn.execute(toJsonString(vars)))
+                    val source = Source.newBuilder("js", buildEmbeddedCode(templateCode, toJsonString(vars)), "exec")
+                        .cached(false)
+                        .build()
+                    convertValue(context.eval(source))
                 } catch (e: OutOfMemoryError) {
                     closeAndReset(context)
                     throw ScriptExecutionException("스크립트 메모리 한도 초과", e)
@@ -61,22 +56,24 @@ class JavaScriptExecutor {
     private fun closeAndReset(context: Context) {
         context.close()
         threadLocalContext.remove()
-        threadLocalFnCache.get().clear()
-        threadLocalFnCache.remove()
     }
 
     /**
-     * {$key} → __vars["key"] 변환 후 __varsJson 파라미터를 받는 함수로 컴파일.
-     * JSON.parse(__varsJson)으로 매 호출마다 새로운 네이티브 JS 객체를 생성하므로
-     * 리스트 원소 간 상태 공유가 원천 차단됨.
+     * {$key} → __vars["key"] 변환 후, vars JSON을 소스에 직접 임베드한 즉시실행 함수 생성.
+     * 파라미터 전달 없이 JSON.parse로 매 호출마다 완전히 독립된 JS 객체를 생성한다.
      */
-    private fun buildFnCode(templateCode: String): String {
+    private fun buildEmbeddedCode(templateCode: String, varsJson: String): String {
         if (templateCode.isBlank())
             throw ScriptExecutionException("스크립트 코드가 비어 있습니다. 코드를 입력하거나 해당 규칙을 삭제하세요.")
         val transformed = PLACEHOLDER_REGEX.replace(templateCode) { match ->
             """__vars["${match.groupValues[1]}"]"""
         }
-        return "(function(__varsJson) { var __vars = JSON.parse(__varsJson); return ($transformed); })"
+        return "(function() { var __vars = JSON.parse(${jsStringLiteral(varsJson)}); return ($transformed); })()"
+    }
+
+    private fun jsStringLiteral(s: String): String {
+        val escaped = s.replace("\\", "\\\\").replace("'", "\\'")
+        return "'$escaped'"
     }
 
     private fun convertValue(value: org.graalvm.polyglot.Value): Any? = when {
