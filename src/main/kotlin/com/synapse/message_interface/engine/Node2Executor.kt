@@ -78,7 +78,6 @@ class Node2Executor(private val scriptExecutor: JavaScriptExecutor) {
                             } else scriptResult
                             if (fieldRule.fieldKey.isNotEmpty()) {
                                 mutableItem[fieldRule.fieldKey] = finalValue
-                                vars["el.${fieldRule.fieldKey}"] = finalValue
                             }
                         }
                         mutableItem
