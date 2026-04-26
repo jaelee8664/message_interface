@@ -83,7 +83,7 @@ export default function Node2Panel({ definition, onChange, unitId, currentNodeId
     { id: 'replace', label: '값 치환' },
     { id: 'typeConvert', label: '타입 변환' },
     { id: 'custom', label: '커스텀 코드' },
-    { id: 'listItem', label: '리스트 변환' },
+    { id: 'listItem', label: '리스트 코드 변환' },
   ]
 
   return (

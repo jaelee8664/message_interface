@@ -5,7 +5,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.graalvm.polyglot.Context
 import org.graalvm.polyglot.Engine
 import org.graalvm.polyglot.Source
-import org.graalvm.polyglot.proxy.ProxyObject
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 
@@ -49,8 +48,11 @@ class JavaScriptExecutor {
             runInterruptible {
                 val context = threadLocalContext.get()
                 try {
-                    @Suppress("UNCHECKED_CAST")
-                    context.getBindings("js").putMember("__vars", ProxyObject.fromMap(vars as Map<String, Any>))
+                    val jsVars = context.eval("js", "Object.create(null)")
+                    for ((k, v) in vars) {
+                        jsVars.putMember(k, v)
+                    }
+                    context.getBindings("js").putMember("__vars", jsVars)
                     convertValue(context.eval(source))
                 } catch (e: OutOfMemoryError) {
                     // OOM은 Exception이 아닌 Error — 별도 캐치하여 Context 정리 후 변환
