@@ -6,7 +6,6 @@ import org.graalvm.polyglot.Context
 import org.graalvm.polyglot.Engine
 import org.graalvm.polyglot.Source
 import org.springframework.stereotype.Component
-import java.util.concurrent.ConcurrentHashMap
 
 class ScriptExecutionTimeoutException(message: String) : RuntimeException(message)
 class ScriptExecutionException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
@@ -16,90 +15,129 @@ class JavaScriptExecutor {
     companion object {
         private val BLOCKED_PATTERNS = listOf("java.", "Packages.", "Java.type")
         private val PLACEHOLDER_REGEX = Regex("""\{\$([^}]+)\}""")
-
-        // 공유 Engine: 스레드 간 AST 캐시 공유 (OpenJDK 환경 — Truffle JIT 미지원)
         private val ENGINE = Engine.create()
     }
 
-    // Source 캐시: templateCode → Source (재시작 시 자동 초기화 — JVM 메모리 객체)
-    private val sourceCache = ConcurrentHashMap<String, Source>()
-
-    // Context는 thread-safe하지 않으므로 스레드별 재사용
     private val threadLocalContext = ThreadLocal.withInitial {
         Context.newBuilder("js")
             .engine(ENGINE)
-            .allowAllAccess(false)  // Java 클래스 접근 차단
+            .allowAllAccess(false)
             .build()
     }
 
+    // 스레드별 컴파일된 함수 캐시 — Context 재생성 시 함께 초기화
+    private val threadLocalFnCache = ThreadLocal.withInitial { mutableMapOf<String, org.graalvm.polyglot.Value>() }
+
     /**
-     * 사용자가 작성한 JS 템플릿 코드({$key} 포함)를 파싱 캐싱 후 실행.
-     * OpenJDK 환경에서는 Truffle JIT 미지원 — 인터프리터 모드로 동작.
-     * Source.cached(true) + 공유 Engine으로 파싱/AST 재사용(파싱 오버헤드 제거)은 유효.
-     * @param templateCode 사용자가 작성한 JS 코드 ({$body.status} 형태 포함)
-     * @param vars flatten된 메시지 맵 (실행 시 __vars로 바인딩)
+     * 사용자가 작성한 JS 템플릿 코드({$key} 포함)를 실행.
+     * vars를 JSON 문자열로 직렬화 후 함수 파라미터로 전달 → JSON.parse로 네이티브 JS 객체 생성.
+     * 이 방식으로 Source 캐싱 문제(리스트 원소 간 결과 공유)와 Java String 타입 문제를 동시에 해결.
      */
     suspend fun executeTemplate(templateCode: String, vars: Map<String, Any?>, timeoutMs: Long = 3000L): Any? {
         validateImports(templateCode)
-
-        val source = sourceCache.getOrPut(templateCode) { buildSource(templateCode) }
 
         return withTimeoutOrNull(timeoutMs) {
             runInterruptible {
                 val context = threadLocalContext.get()
                 try {
-                    val jsVars = context.eval("js", "Object.create(null)")
-                    for ((k, v) in vars) {
-                        jsVars.putMember(k, v)
+                    val fn = threadLocalFnCache.get().getOrPut(templateCode) {
+                        val source = Source.newBuilder("js", buildFnCode(templateCode), "fn")
+                            .cached(false)
+                            .build()
+                        context.eval(source)
                     }
-                    context.getBindings("js").putMember("__vars", jsVars)
-                    convertValue(context.eval(source))
+                    convertValue(fn.execute(toJsonString(vars)))
                 } catch (e: OutOfMemoryError) {
-                    // OOM은 Exception이 아닌 Error — 별도 캐치하여 Context 정리 후 변환
-                    context.close()
-                    threadLocalContext.remove()
+                    closeAndReset(context)
                     throw ScriptExecutionException("스크립트 메모리 한도 초과", e)
                 } catch (e: Exception) {
-                    // 예외 발생 시 Context 상태가 불안정할 수 있으므로 재생성
-                    context.close()
-                    threadLocalContext.remove()
+                    closeAndReset(context)
                     throw ScriptExecutionException("스크립트 실행 오류: ${e.message}", e)
                 }
             }
         } ?: throw ScriptExecutionTimeoutException("스크립트 실행 시간 초과 (${timeoutMs}ms)")
     }
 
-    /**
-     * GraalVM Value → Kotlin 타입 재귀 변환.
-     * JS object → Map<String, Any?>, JS array → List<Any?>, primitive → 해당 타입
-     */
-    private fun convertValue(value: org.graalvm.polyglot.Value): Any? = when {
-        value.isNull            -> null
-        value.isBoolean         -> value.asBoolean()
-        value.fitsInInt()       -> value.asInt()
-        value.fitsInDouble()    -> value.asDouble()
-        value.isString          -> value.asString()
-        value.hasArrayElements() -> (0 until value.arraySize).map { convertValue(value.getArrayElement(it)) }
-        value.hasMembers()      -> value.memberKeys.associateWith { convertValue(value.getMember(it)) }
-        else                    -> value.toString()
+    private fun closeAndReset(context: Context) {
+        context.close()
+        threadLocalContext.remove()
+        threadLocalFnCache.get().clear()
+        threadLocalFnCache.remove()
     }
 
     /**
-     * {$key} → __vars.get("key") 로 변환 후 Source 빌드.
-     * IIFE로 감싸 독립 스코프 보장.
+     * {$key} → __vars["key"] 변환 후 __varsJson 파라미터를 받는 함수로 컴파일.
+     * JSON.parse(__varsJson)으로 매 호출마다 새로운 네이티브 JS 객체를 생성하므로
+     * 리스트 원소 간 상태 공유가 원천 차단됨.
      */
-    private fun buildSource(templateCode: String): Source {
+    private fun buildFnCode(templateCode: String): String {
         if (templateCode.isBlank())
             throw ScriptExecutionException("스크립트 코드가 비어 있습니다. 코드를 입력하거나 해당 규칙을 삭제하세요.")
-
         val transformed = PLACEHOLDER_REGEX.replace(templateCode) { match ->
             """__vars["${match.groupValues[1]}"]"""
         }
-        val jsCode = "(function() { return ($transformed); })()"
-        return try {
-            Source.newBuilder("js", jsCode, "template").cached(true).build()
-        } catch (e: Exception) {
-            throw ScriptExecutionException("스크립트 컴파일 오류 — 생성된 코드: [$jsCode]\n원인: ${e.message}", e)
+        return "(function(__varsJson) { var __vars = JSON.parse(__varsJson); return ($transformed); })"
+    }
+
+    private fun convertValue(value: org.graalvm.polyglot.Value): Any? = when {
+        value.isNull             -> null
+        value.isBoolean          -> value.asBoolean()
+        value.fitsInInt()        -> value.asInt()
+        value.fitsInDouble()     -> value.asDouble()
+        value.isString           -> value.asString()
+        value.hasArrayElements() -> (0 until value.arraySize).map { convertValue(value.getArrayElement(it)) }
+        value.hasMembers()       -> value.memberKeys.associateWith { convertValue(value.getMember(it)) }
+        else                     -> value.toString()
+    }
+
+    private fun toJsonString(vars: Map<String, Any?>): String {
+        val sb = StringBuilder("{")
+        vars.entries.forEachIndexed { i, (k, v) ->
+            if (i > 0) sb.append(',')
+            sb.append('"').append(jsonEscape(k)).append("\":")
+            appendJson(sb, v)
+        }
+        sb.append('}')
+        return sb.toString()
+    }
+
+    private fun appendJson(sb: StringBuilder, v: Any?) {
+        when (v) {
+            null      -> sb.append("null")
+            is Boolean -> sb.append(v)
+            is Int, is Long, is Short, is Byte -> sb.append(v)
+            is Float  -> if (v.isNaN() || v.isInfinite()) sb.append("null") else sb.append(v)
+            is Double -> if (v.isNaN() || v.isInfinite()) sb.append("null") else sb.append(v)
+            is String -> sb.append('"').append(jsonEscape(v)).append('"')
+            is List<*> -> {
+                sb.append('[')
+                v.forEachIndexed { i, item -> if (i > 0) sb.append(','); appendJson(sb, item) }
+                sb.append(']')
+            }
+            is Map<*, *> -> {
+                sb.append('{')
+                @Suppress("UNCHECKED_CAST")
+                (v as Map<String, Any?>).entries.forEachIndexed { i, (mk, mv) ->
+                    if (i > 0) sb.append(',')
+                    sb.append('"').append(jsonEscape(mk)).append("\":")
+                    appendJson(sb, mv)
+                }
+                sb.append('}')
+            }
+            else -> sb.append('"').append(jsonEscape(v.toString())).append('"')
+        }
+    }
+
+    private fun jsonEscape(s: String) = buildString {
+        for (c in s) when (c) {
+            '"'      -> append("\\\"")
+            '\\'     -> append("\\\\")
+            '\n'     -> append("\\n")
+            '\r'     -> append("\\r")
+            '\t'     -> append("\\t")
+            '\b'     -> append("\\b")
+            '' -> append("\\f")
+            else     -> if (c < ' ') append("\\u${c.code.toString(16).padStart(4, '0')}") else append(c)
         }
     }
 
