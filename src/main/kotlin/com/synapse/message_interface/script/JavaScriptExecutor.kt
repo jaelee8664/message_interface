@@ -7,7 +7,11 @@ import org.graalvm.polyglot.Engine
 import org.springframework.stereotype.Component
 
 class ScriptExecutionTimeoutException(message: String) : RuntimeException(message)
-class ScriptExecutionException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+class ScriptExecutionException(
+    message: String,
+    cause: Throwable? = null,
+    val compiledCode: String? = null
+) : RuntimeException(message, cause)
 
 @Component
 class JavaScriptExecutor {
@@ -32,18 +36,19 @@ class JavaScriptExecutor {
      */
     suspend fun executeTemplate(templateCode: String, vars: Map<String, Any?>, timeoutMs: Long = 3000L): Any? {
         validateImports(templateCode)
+        val embeddedCode = buildEmbeddedCode(templateCode, toJsonString(vars))
 
         return withTimeoutOrNull(timeoutMs) {
             runInterruptible {
                 val context = threadLocalContext.get()
                 try {
-                        convertValue(context.eval("js", buildEmbeddedCode(templateCode, toJsonString(vars))))
+                    convertValue(context.eval("js", embeddedCode))
                 } catch (e: OutOfMemoryError) {
                     closeAndReset(context)
-                    throw ScriptExecutionException("스크립트 메모리 한도 초과", e)
+                    throw ScriptExecutionException("스크립트 메모리 한도 초과", e, compiledCode = embeddedCode)
                 } catch (e: Exception) {
                     closeAndReset(context)
-                    throw ScriptExecutionException("스크립트 실행 오류: ${e.message}", e)
+                    throw ScriptExecutionException("스크립트 실행 오류: ${e.message}", e, compiledCode = embeddedCode)
                 }
             }
         } ?: throw ScriptExecutionTimeoutException("스크립트 실행 시간 초과 (${timeoutMs}ms)")

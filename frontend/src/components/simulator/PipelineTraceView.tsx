@@ -11,6 +11,7 @@ export interface SimulationNodeTrace {
   outputSnapshot: Record<string, unknown> | null
   rawResponse: string | null
   errorMessage: string | null
+  compiledScript: string | null
 }
 
 interface Props {

@@ -52,6 +52,14 @@ export default function SimTraceTimeline({
   onClose,
 }: Props) {
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null)
+  const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null)
+
+  function copyScript(nodeId: string, code: string) {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedNodeId(nodeId)
+      setTimeout(() => setCopiedNodeId(null), 2000)
+    })
+  }
 
   function toggleExpand(nodeId: string) {
     setExpandedNodeId(prev => prev === nodeId ? null : nodeId)
@@ -127,6 +135,22 @@ export default function SimTraceTimeline({
                         <div className="text-xs text-red-400 font-medium mb-1 pt-2">에러</div>
                         <pre className="text-xs bg-slate-950 rounded p-2 text-red-300 whitespace-pre-wrap break-all max-h-32 overflow-auto">
                           {trace.errorMessage}
+                        </pre>
+                      </div>
+                    )}
+                    {isError && trace.compiledScript && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="text-xs text-amber-400 font-medium">실행된 JS 코드</div>
+                          <button
+                            className="text-xs px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                            onClick={() => copyScript(trace.nodeId, trace.compiledScript!)}
+                          >
+                            {copiedNodeId === trace.nodeId ? '복사됨 ✓' : '복사'}
+                          </button>
+                        </div>
+                        <pre className="text-xs bg-slate-950 rounded p-2 text-amber-200/80 whitespace-pre-wrap break-all max-h-48 overflow-auto font-mono">
+                          {trace.compiledScript}
                         </pre>
                       </div>
                     )}

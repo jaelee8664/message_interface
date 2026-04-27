@@ -13,6 +13,7 @@ import com.synapse.message_interface.log.MessageTraceLogger
 import com.synapse.message_interface.log.TraceLog
 import com.synapse.message_interface.log.TraceStatus
 import com.synapse.message_interface.parser.MessageParserRegistry
+import com.synapse.message_interface.script.ScriptExecutionException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.springframework.stereotype.Component
@@ -220,7 +221,8 @@ class MessagePipeline(
                             durationMs = System.currentTimeMillis() - startMs,
                             inputSnapshot = inputSnapshot,
                             outputSnapshot = null,
-                            errorMessage = e.message
+                            errorMessage = e.message,
+                            compiledScript = extractCompiledScript(e)
                         ))
                         throw wrapAndLog(e, node, context, unit.id, unit.name)
                     }
@@ -250,7 +252,8 @@ class MessagePipeline(
                             durationMs = System.currentTimeMillis() - startMs,
                             inputSnapshot = inputSnapshot,
                             outputSnapshot = null,
-                            errorMessage = e.message
+                            errorMessage = e.message,
+                            compiledScript = extractCompiledScript(e)
                         ))
                         throw wrapAndLog(e, node, context, unit.id, unit.name)
                     }
@@ -374,6 +377,15 @@ class MessagePipeline(
                 context.sessionVars[extraction.variableName] = value.toString()
             }
         }
+    }
+
+    private fun extractCompiledScript(e: Exception): String? {
+        var cause: Throwable? = e
+        while (cause != null) {
+            if (cause is ScriptExecutionException) return cause.compiledCode
+            cause = cause.cause
+        }
+        return null
     }
 
     private fun wrapAndLog(e: Exception, node: WorkflowNode, context: MessageContext, unitId: String, unitName: String): NodeException {

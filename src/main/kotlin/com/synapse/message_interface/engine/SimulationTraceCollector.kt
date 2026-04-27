@@ -17,7 +17,8 @@ data class SimulationNodeTrace(
     val inputSnapshot: Map<String, Any?>?,
     val outputSnapshot: Map<String, Any?>?,
     val rawResponse: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val compiledScript: String? = null
 )
 
 /** Thread-safe collector passed through a pipeline execution to gather per-node traces inline.
