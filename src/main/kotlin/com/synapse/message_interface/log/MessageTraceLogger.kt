@@ -26,8 +26,8 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     companion object {
         const val LOG_DIR = "message-logs"
         const val MAX_MEMORY_ENTRIES = 10_000
-        /** Stat ring buffer — lightweight events only, much larger than the log buffer. */
-        const val MAX_STAT_ENTRIES = 500_000
+        /** Minute buckets covering 24h (1440 minutes). */
+        const val BUCKET_COUNT = 1440
         /** Drop logs silently if the async channel is full (high-load protection). */
         const val CHANNEL_CAPACITY = 100_000
         /** Periodic flush interval in milliseconds — limits maximum log loss on crash. */
@@ -43,10 +43,15 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     private val recentLogs = ArrayDeque<TraceLog>()
     private val lock = Any()
 
-    /** Lightweight stat events — written directly in [log] (not via channel), guarded by [statLock]. */
-    private data class StatEvent(val timestamp: Instant, val unitId: String, val unitName: String, val success: Boolean)
-    private val statEvents = ArrayDeque<StatEvent>()
-    private val statLock = Any()
+    /** Per-minute bucket for a single unit. Slot index = (epochSecond / 60) % BUCKET_COUNT. */
+    private data class MinuteBucket(
+        var minuteEpoch: Long = -1L,
+        var success: Long = 0L,
+        var error: Long = 0L,
+        var unitName: String = "",
+        var lastActivity: Instant? = null
+    )
+    private val unitBuckets = java.util.concurrent.ConcurrentHashMap<String, Array<MinuteBucket>>()
 
     /** Shared reference so the flush coroutine can reach the writer owned by the consumer coroutine. */
     private val fileWriterRef = AtomicReference<DailyFileWriter?>(null)
@@ -63,31 +68,53 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     /** Fire-and-forget: enqueue a log entry for async file write. Never blocks. */
     fun log(traceLog: TraceLog) {
         channel.trySend(traceLog) // drops silently when channel is full (non-blocking)
-        val event = StatEvent(traceLog.timestamp, traceLog.workflowUnitId, traceLog.workflowUnitName, traceLog.status == TraceStatus.SUCCESS)
-        synchronized(statLock) {
-            statEvents.addLast(event)
-            if (statEvents.size > MAX_STAT_ENTRIES) statEvents.removeFirst()
+        val success = traceLog.status == TraceStatus.SUCCESS
+        val minuteEpoch = traceLog.timestamp.epochSecond / 60
+        val index = (minuteEpoch % BUCKET_COUNT).toInt()
+        val buckets = unitBuckets.computeIfAbsent(traceLog.workflowUnitId) { Array(BUCKET_COUNT) { MinuteBucket() } }
+        synchronized(buckets) {
+            val bucket = buckets[index]
+            if (bucket.minuteEpoch == minuteEpoch) {
+                if (success) bucket.success++ else bucket.error++
+            } else {
+                bucket.minuteEpoch = minuteEpoch
+                bucket.success = if (success) 1L else 0L
+                bucket.error = if (!success) 1L else 0L
+            }
+            bucket.unitName = traceLog.workflowUnitName
+            if (bucket.lastActivity == null || traceLog.timestamp.isAfter(bucket.lastActivity)) {
+                bucket.lastActivity = traceLog.timestamp
+            }
         }
     }
 
     /**
-     * Aggregates pipeline stats from the in-memory log buffer for the last [windowMinutes] minutes.
+     * Aggregates pipeline stats from minute buckets for the last [windowMinutes] minutes.
      * Returns per-unit counts grouped by (unitId, unitName).
      */
     fun getRecentStats(windowMinutes: Int = 60): List<UnitStat> {
-        val cutoff = Instant.now().minusSeconds(windowMinutes * 60L)
-        val snapshot = synchronized(statLock) { statEvents.toList() }
-        data class Acc(var success: Long = 0, var error: Long = 0, var lastActivity: Instant? = null, var unitName: String = "")
-        val map = LinkedHashMap<String, Acc>()
-        for (event in snapshot) {
-            if (event.timestamp.isBefore(cutoff)) continue
-            val acc = map.getOrPut(event.unitId) { Acc(unitName = event.unitName) }
-            if (event.success) acc.success++ else acc.error++
-            if (acc.lastActivity == null || event.timestamp.isAfter(acc.lastActivity)) acc.lastActivity = event.timestamp
-            acc.unitName = event.unitName
-        }
-        return map.map { (unitId, acc) ->
-            UnitStat(unitId, acc.unitName.ifEmpty { unitId }, acc.success, acc.error, acc.lastActivity)
+        val nowMinuteEpoch = Instant.now().epochSecond / 60
+        val cutoff = nowMinuteEpoch - windowMinutes
+        return unitBuckets.mapNotNull { (unitId, buckets) ->
+            var success = 0L
+            var error = 0L
+            var lastActivity: Instant? = null
+            var unitName = ""
+            synchronized(buckets) {
+                for (bucket in buckets) {
+                    if (bucket.minuteEpoch in (cutoff + 1)..nowMinuteEpoch) {
+                        success += bucket.success
+                        error += bucket.error
+                        if (bucket.lastActivity != null &&
+                            (lastActivity == null || bucket.lastActivity!!.isAfter(lastActivity))) {
+                            lastActivity = bucket.lastActivity
+                        }
+                        if (bucket.unitName.isNotEmpty()) unitName = bucket.unitName
+                    }
+                }
+            }
+            if (success == 0L && error == 0L) null
+            else UnitStat(unitId, unitName.ifEmpty { unitId }, success, error, lastActivity)
         }
     }
 
