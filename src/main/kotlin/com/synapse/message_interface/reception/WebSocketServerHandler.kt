@@ -1,5 +1,6 @@
 package com.synapse.message_interface.reception
 
+import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.engine.MessageContext
 import com.synapse.message_interface.engine.WorkflowDispatcher
@@ -21,7 +22,8 @@ import java.util.concurrent.atomic.AtomicLong
 class WebSocketServerHandler(
     private val registry: WorkflowRegistry,
     private val dispatcher: WorkflowDispatcher,
-    private val sessionRegistry: WebSocketSessionRegistry
+    private val sessionRegistry: WebSocketSessionRegistry,
+    private val referenceConfigService: ReferenceConfigService
 ) : WebSocketHandler {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -40,18 +42,23 @@ class WebSocketServerHandler(
             return session.close()
         }
 
-        val node0 = unit.nodes.first { it.node0?.protocol == ProtocolType.WEBSOCKET_SERVER }.node0!!
         val sessionId = sessionRegistry.register(session, unit.id)
         val clientIp = session.handshakeInfo.remoteAddress?.address?.hostAddress ?: ""
         log.info("[WebSocket Server] 새 연결: unitId=${unit.id}, sessionId=$sessionId, ip=$clientIp")
 
+        @Suppress("UNCHECKED_CAST")
+        val wsCfg = referenceConfigService.getConfig()["webSocketServer"] as? Map<String, Any?>
+        val pingEnabled        = wsCfg?.get("pingEnabled")        as? Boolean ?: false
+        val pingIntervalMs     = ((wsCfg?.get("pingIntervalSeconds") as? Number)?.toLong() ?: 30L) * 1000L
+        val pongTimeoutMs      = ((wsCfg?.get("pongTimeoutSeconds")  as? Number)?.toLong() ?: 10L) * 1000L
+
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val lastPongTime = AtomicLong(System.currentTimeMillis())
 
-        val pingJob = if (node0.pingEnabled) {
+        val pingJob = if (pingEnabled) {
             scope.launch {
                 while (session.isOpen) {
-                    delay(node0.pingIntervalSeconds * 1000L)
+                    delay(pingIntervalMs)
                     if (!session.isOpen) break
 
                     val pingSentAt = System.currentTimeMillis()
@@ -64,7 +71,7 @@ class WebSocketServerHandler(
                         break
                     }
 
-                    delay(node0.pongTimeoutSeconds * 1000L)
+                    delay(pongTimeoutMs)
                     if (lastPongTime.get() < pingSentAt) {
                         log.warn("[WebSocket Server] Pong 미응답 (좀비 연결 감지), 강제 종료: unitId=${unit.id}, sessionId=${session.id}")
                         session.close().awaitFirstOrNull()

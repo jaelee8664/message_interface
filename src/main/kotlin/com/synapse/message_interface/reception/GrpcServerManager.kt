@@ -1,5 +1,6 @@
 package com.synapse.message_interface.reception
 
+import com.synapse.message_interface.config.ReferenceConfigService
 import io.grpc.Server
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import org.slf4j.LoggerFactory
@@ -28,7 +29,8 @@ import java.util.concurrent.TimeUnit
  */
 @Component
 class GrpcServerManager(
-    @Value("\${grpc.server.port:9090}") private val grpcPort: Int
+    @Value("\${grpc.server.port:9090}") private val grpcPort: Int,
+    private val referenceConfigService: ReferenceConfigService
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -78,18 +80,24 @@ class GrpcServerManager(
         val builder = NettyServerBuilder.forPort(grpcPort)
             .maxInboundMessageSize(16 * 1024 * 1024) // 16 MB
 
-        // keepAlive: pingEnabled인 첫 번째 핸들러 설정 적용 (서버는 포트 단위로 공유)
-        val pingHandler = handlers.firstOrNull { it.definition.pingEnabled }
-        if (pingHandler != null) {
+        // keepAlive: 기준정보(reference_config.grpcServer)에서 전역 설정 적용
+        @Suppress("UNCHECKED_CAST")
+        val grpcServerCfg = referenceConfigService.getConfig()["grpcServer"] as? Map<String, Any?>
+        val permitKeepAliveTime = (grpcServerCfg?.get("permitKeepAliveTime") as? Number)?.toLong() ?: 300L
+        builder.permitKeepAliveTime(permitKeepAliveTime, TimeUnit.SECONDS)
+
+        val keepAliveEnabled = grpcServerCfg?.get("keepAliveEnabled") as? Boolean ?: false
+        if (keepAliveEnabled) {
+            val interval = (grpcServerCfg?.get("keepAliveIntervalSeconds") as? Number)?.toLong() ?: 300L
+            val timeout  = (grpcServerCfg?.get("keepAliveTimeoutSeconds")  as? Number)?.toLong() ?: 20L
+            val permitWithoutCalls = grpcServerCfg?.get("permitKeepAliveWithoutCalls") as? Boolean ?: true
             builder
-                .keepAliveTime(pingHandler.definition.pingIntervalSeconds.toLong(), TimeUnit.SECONDS)
-                .keepAliveTimeout(pingHandler.definition.pongTimeoutSeconds.toLong(), TimeUnit.SECONDS)
-                .permitKeepAliveWithoutCalls(true)
-            log.info(
-                "[gRPC Server Manager] keepAlive 활성화: interval={}s, timeout={}s",
-                pingHandler.definition.pingIntervalSeconds, pingHandler.definition.pongTimeoutSeconds
-            )
+                .keepAliveTime(interval, TimeUnit.SECONDS)
+                .keepAliveTimeout(timeout, TimeUnit.SECONDS)
+                .permitKeepAliveWithoutCalls(permitWithoutCalls)
+            log.info("[gRPC Server Manager] keepAlive 활성화: interval={}s, timeout={}s, permitWithoutCalls={}", interval, timeout, permitWithoutCalls)
         }
+        log.info("[gRPC Server Manager] permitKeepAliveTime={}s", permitKeepAliveTime)
 
         handlers.forEach { handler ->
             try {

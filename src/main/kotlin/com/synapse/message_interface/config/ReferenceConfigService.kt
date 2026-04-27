@@ -32,10 +32,25 @@ class ReferenceConfigService(
                 cache.set(defaults)
                 log.info("[ReferenceConfig] MongoDB에 기본값을 시드했습니다.")
             } else {
-                cache.set(existing)
+                val merged = mergeDefaults(loadDefaults(), existing)
+                if (merged != existing) saveToMongo(merged)
+                cache.set(merged)
                 log.info("[ReferenceConfig] MongoDB에서 설정을 로드했습니다.")
             }
         }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun mergeDefaults(defaults: Map<String, Any?>, existing: Map<String, Any?>): Map<String, Any?> {
+        val result = defaults.toMutableMap()
+        for ((key, existingVal) in existing) {
+            val defaultVal = defaults[key]
+            result[key] = if (defaultVal is Map<*, *> && existingVal is Map<*, *>)
+                mergeDefaults(defaultVal as Map<String, Any?>, existingVal as Map<String, Any?>)
+            else
+                existingVal
+        }
+        return result
     }
 
     fun getConfig(): Map<String, Any?> = cache.get()
@@ -88,6 +103,21 @@ class ReferenceConfigService(
             "codeModel" to "qwen2.5-coder:7b",
             "chatModel" to "llama3.2:3b",
             "timeoutSeconds" to 60
+        ),
+        "grpcServer" to mapOf(
+            "keepAliveEnabled" to false,
+            "keepAliveIntervalSeconds" to 300,
+            "keepAliveTimeoutSeconds" to 20,
+            "permitKeepAliveTime" to 300,
+            "permitKeepAliveWithoutCalls" to true
+        ),
+        "tcpServer" to mapOf(
+            "idleTimeoutSeconds" to 60
+        ),
+        "webSocketServer" to mapOf(
+            "pingEnabled" to false,
+            "pingIntervalSeconds" to 30,
+            "pongTimeoutSeconds" to 10
         )
     )
 }

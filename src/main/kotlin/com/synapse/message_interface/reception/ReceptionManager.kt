@@ -1,6 +1,7 @@
 package com.synapse.message_interface.reception
 
 import com.google.protobuf.Descriptors
+import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.domain.NodeType
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.WorkflowUnit
@@ -33,6 +34,7 @@ class ReceptionManager(
     private val grpcSessionRegistry: GrpcSessionRegistry,
     private val grpcClientRegistry: GrpcClientRegistry,
     private val grpcServerManager: GrpcServerManager,
+    private val referenceConfigService: ReferenceConfigService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val activeHandlers = ConcurrentHashMap<String, Any>() // unitId → handler
@@ -42,7 +44,7 @@ class ReceptionManager(
 
     @Bean
     fun webSocketHandlerMapping(): HandlerMapping {
-        val wsHandler = WebSocketServerHandler(registry, dispatcher, sessionRegistry)
+        val wsHandler = WebSocketServerHandler(registry, dispatcher, sessionRegistry, referenceConfigService)
         val mapping = object : SimpleUrlHandlerMapping() {
             override fun getHandlerInternal(exchange: ServerWebExchange): Mono<Any> {
                 val upgrade = exchange.request.headers.getFirst("Upgrade")

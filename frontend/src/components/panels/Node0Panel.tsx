@@ -23,7 +23,7 @@ const PROTOCOL_OPTIONS: { value: ProtocolType; label: string }[] = [
 ]
 
 const CLIENT_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'TCP_CLIENT', 'GRPC_CLIENT']
-const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'WEBSOCKET_SERVER', 'GRPC_CLIENT', 'GRPC_SERVER']
+const PING_PROTOCOLS: ProtocolType[] = ['WEBSOCKET_CLIENT', 'GRPC_CLIENT']
 const GRPC_PROTOCOLS: ProtocolType[] = ['GRPC_SERVER', 'GRPC_CLIENT']
 
 const DEFAULT: Node0Definition = {
@@ -61,11 +61,15 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
       {/* gRPC 공통: 서비스명 / 메서드명 */}
       {isGrpc && (
         <>
-          <div className="p-2.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-300 leading-relaxed">
-            {isGrpcClient
-              ? 'gRPC 클라이언트는 Spring HTTP 포트와 별도로 동작합니다.'
-              : <>gRPC 서버 포트는 <code className="bg-cyan-900/50 px-1 rounded">application.yaml</code>의 <code className="bg-cyan-900/50 px-1 rounded">grpc.server.port</code>로 설정합니다. (기본: 9090)</>
-            }
+          <div className="p-2.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-300 leading-relaxed space-y-1">
+            {isGrpcClient ? (
+              <span>gRPC 클라이언트는 Spring HTTP 포트와 별도로 동작합니다.</span>
+            ) : (
+              <>
+                <div>gRPC 서버 포트는 <code className="bg-cyan-900/50 px-1 rounded">application.yaml</code>의 <code className="bg-cyan-900/50 px-1 rounded">grpc.server.port</code>로 설정합니다. (기본: 9090)</div>
+                <div className="text-cyan-400/70">HTTP/2 keepAlive(Ping/Pong) 설정은 <span className="text-cyan-300 font-semibold">기준정보 페이지 → gRPC 서버</span> 섹션에서 관리합니다.</div>
+              </>
+            )}
           </div>
           <InputField
             label="서비스 이름"
@@ -131,15 +135,16 @@ export default function Node0Panel({ definition, onChange, condition, onConditio
         />
       )}
 
+      {def.protocol === 'WEBSOCKET_SERVER' && (
+        <div className="p-2.5 rounded border border-slate-600/50 bg-slate-800/50 text-xs text-slate-400 leading-relaxed">
+          Ping/Pong 설정은 <span className="text-slate-300 font-semibold">기준정보 페이지 → WebSocket 서버</span> 섹션에서 관리합니다.
+        </div>
+      )}
+
       {isTcpServer && (
-        <InputField
-          label="유휴 연결 타임아웃 (초)"
-          type="number"
-          value={def.tcpIdleTimeoutSeconds ?? ''}
-          onChange={(e) => update({ tcpIdleTimeoutSeconds: e.target.value === '' ? undefined : Number(e.target.value) })}
-          placeholder="기본값 60, 0 = 비활성화"
-          hint="마지막 수신 후 이 시간 동안 데이터가 없으면 연결을 종료합니다."
-        />
+        <div className="p-2.5 rounded border border-slate-600/50 bg-slate-800/50 text-xs text-slate-400 leading-relaxed">
+          유휴 연결 타임아웃 설정은 <span className="text-slate-300 font-semibold">기준정보 페이지 → TCP 서버</span> 섹션에서 관리합니다.
+        </div>
       )}
 
       {isRestServer && (

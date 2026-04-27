@@ -59,7 +59,6 @@ export interface Node0Definition {
   pongTimeoutSeconds: number
   reconnectDelaySeconds: number
   bidirectional: boolean
-  tcpIdleTimeoutSeconds?: number
   // MONGO_QUEUE_CONSUMER 전용
   mongoQueueName?: string
   mongoQueueMaxRetries?: number

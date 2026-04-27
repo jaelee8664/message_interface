@@ -1,5 +1,6 @@
 package com.synapse.message_interface.reception
 
+import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.domain.ProtocolType
 import com.synapse.message_interface.domain.NodeType
 import com.synapse.message_interface.engine.WorkflowDispatcher
@@ -15,17 +16,15 @@ import java.util.concurrent.TimeUnit
 class PortUnificationCustomizer(
     private val dispatcher: WorkflowDispatcher,
     private val sessionRegistry: TcpServerSessionRegistry,
-    private val workflowRegistry: WorkflowRegistry
+    private val workflowRegistry: WorkflowRegistry,
+    private val referenceConfigService: ReferenceConfigService
 ) : WebServerFactoryCustomizer<NettyReactiveWebServerFactory> {
     override fun customize(factory: NettyReactiveWebServerFactory) {
         factory.addServerCustomizers(NettyServerCustomizer { server ->
             server.doOnChannelInit { _, channel, _ ->
-                val idleTimeoutSeconds = workflowRegistry.getAll()
-                    .flatMap { it.nodes }
-                    .mapNotNull { node -> node.node0?.takeIf { it.protocol == ProtocolType.TCP_SERVER } }
-                    .mapNotNull { it.tcpIdleTimeoutSeconds }
-                    .minOrNull()
-                    ?: 60
+                @Suppress("UNCHECKED_CAST")
+                val tcpServerCfg = referenceConfigService.getConfig()["tcpServer"] as? Map<String, Any?>
+                val idleTimeoutSeconds = (tcpServerCfg?.get("idleTimeoutSeconds") as? Number)?.toInt() ?: 60
                 val pipeline = channel.pipeline()
                 // protocol-detector를 먼저 추가한 뒤, idle handler를 그 앞에 삽입
                 // → 연결 즉시(첫 메시지 전)부터 idle 타이머 시작; HTTP 연결은 protocol-detector에서 제거됨
