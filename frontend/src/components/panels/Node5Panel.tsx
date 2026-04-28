@@ -210,7 +210,7 @@ function SuccessConfigEditor({
     <div className="space-y-3">
       {/* HTTP Status */}
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-slate-300">HTTP 상태 코드</label>
+        <label className="block text-xs font-medium text-slate-300">HTTP 상태 코드 <span className="text-slate-500 font-normal">(REST 서버 전용)</span></label>
         <div className="flex gap-2">
           <select
             className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
@@ -376,10 +376,13 @@ export default function Node5Panel({ definition, onChange, sessionVars = [] }: P
     <div className="space-y-4">
       {/* Info banner */}
       <div className="rounded-md bg-cyan-950/50 border border-cyan-800/50 px-3 py-2 text-xs text-cyan-300 leading-relaxed space-y-1.5">
-        <p>NODE5는 REST 서버의 HTTP 응답(성공·오류)을 명시적으로 제어합니다.</p>
-        <p className="text-cyan-500">NODE5가 없으면 성공 시 빈 body(200), 오류 시 예외 종류에 따른 HTTP 상태 코드가 자동 반환됩니다.</p>
+        <p>NODE5는 파이프라인의 응답 메시지 body(성공·오류)를 구성합니다.</p>
+        <div className="space-y-0.5 text-cyan-500">
+          <p><span className="text-cyan-400 font-medium">REST 서버:</span> NODE5 body가 HTTP 응답으로 자동 반환됩니다. NODE5가 없으면 성공 시 빈 body(200), 오류 시 예외 종류에 따른 HTTP 상태 코드가 반환됩니다.</p>
+          <p><span className="text-cyan-400 font-medium">WebSocket·TCP·gRPC 서버 등:</span> NODE5 body가 자동 전송되지 않습니다. 아래 엣지 연결을 통해 NODE4로 전달하여 직접 발송하세요.</p>
+        </div>
         <div className="border-t border-cyan-800/40 pt-1.5 space-y-0.5">
-          <p className="text-cyan-400 font-medium">NODE5 → 다음 노드 추가 실행 (선택)</p>
+          <p className="text-cyan-400 font-medium">NODE5 → 다음 노드 추가 실행</p>
           <p className="text-cyan-500">
             NODE5에서 다른 노드(주로 NODE4)로 엣지를 연결하면, NODE5가 생성한 응답 body를 currentMap으로 전달하여 추가 작업을 실행할 수 있습니다.
           </p>
@@ -425,7 +428,7 @@ export default function Node5Panel({ definition, onChange, sessionVars = [] }: P
             오류가 발생한 노드에 직접 설정된 오류 응답이 없을 때 사용되는 기본값입니다.
             <br />
             <span className="text-slate-500">
-              HTTP 상태 코드는 예외에서 자동으로 결정됩니다.
+              HTTP 상태 코드는 예외에서 자동으로 결정됩니다 (REST 서버 전용).
               (ResponseStatusException → 해당 코드 / 그 외 → 500)
             </span>
           </div>

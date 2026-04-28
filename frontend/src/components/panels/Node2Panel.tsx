@@ -82,8 +82,8 @@ export default function Node2Panel({ definition, onChange, unitId, currentNodeId
   const tabs: { id: Tab; label: string }[] = [
     { id: 'replace', label: '값 치환' },
     { id: 'typeConvert', label: '타입 변환' },
-    { id: 'custom', label: '커스텀 코드' },
-    { id: 'listItem', label: '리스트 코드 변환' },
+    { id: 'custom', label: '커스텀 코드 - 맵' },
+    { id: 'listItem', label: '커스텀 코드 - 리스트' },
   ]
 
   return (
@@ -301,12 +301,18 @@ function ListItemCodeTab({ rules, onChange, unitId, currentNodeId, unit }: {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-400">
-        리스트 원소마다 필드값을 JS로 변환합니다.{' '}
-        <span className="font-mono text-slate-300">{'{'}<span className="text-yellow-300">$el</span>{'}'}</span> = 원소(원시),{' '}
-        <span className="font-mono text-slate-300">{'{'}<span className="text-yellow-300">$el.필드</span>{'}'}</span> = 원소 필드,{' '}
-        <span className="font-mono text-slate-300">{'{'}<span className="text-yellow-300">$외부키</span>{'}'}</span> = 외부 필드
-      </p>
+      <div className="p-2.5 rounded bg-slate-800 border border-slate-700 space-y-1.5">
+        <p className="text-xs text-slate-300 font-medium">리스트 원소마다 JavaScript 표현식으로 필드 값을 변환합니다.</p>
+        <p className="text-xs text-slate-400">
+          단일 표현식으로 작성하며 <code className="text-slate-300">return</code>은 사용하지 않습니다.
+        </p>
+        <div className="text-xs text-slate-400 space-y-0.5">
+          <p><span className="font-mono text-yellow-300">{'{$el}'}</span> — 원시 타입 원소의 값 (String, Number 등)</p>
+          <p><span className="font-mono text-yellow-300">{'{$el.필드명}'}</span> — Map 원소의 특정 필드 값</p>
+          <p><span className="font-mono text-yellow-300">{'{$외부.키경로}'}</span> — 리스트 바깥의 메시지 필드 값</p>
+        </div>
+        <p className="text-xs text-slate-500">샌드박스: java.*, Packages.*, Java.type 사용 불가 · 타임아웃 3초</p>
+      </div>
 
       {/* Auto-detected list fields */}
       {detectedLists.length > 0 && (
@@ -574,6 +580,16 @@ function CustomCodeTab({ rules, onChange, unitId }: { rules: CustomCodeRule[]; o
 
   return (
     <div className="space-y-3">
+      {/* Description */}
+      <div className="p-2.5 rounded bg-slate-800 border border-slate-700 space-y-1.5">
+        <p className="text-xs text-slate-300 font-medium">JavaScript 표현식으로 필드 값을 변환합니다.</p>
+        <p className="text-xs text-slate-400">
+          <span className="font-mono text-yellow-300">{'{$키경로}'}</span>는 해당 필드의 실제 값으로 치환됩니다.
+          단일 표현식으로 작성하며 <code className="text-slate-300">return</code>은 사용하지 않습니다.
+        </p>
+        <p className="text-xs text-slate-500">샌드박스: java.*, Packages.*, Java.type 사용 불가 · 타임아웃 3초</p>
+      </div>
+
       <div className="space-y-2">
         {rules.map((r, i) => (
           <div key={i} className={`px-2 py-1.5 rounded border text-xs ${editingIndex === i ? 'bg-blue-900 border-blue-500' : 'bg-slate-700 border-slate-600'}`}>
@@ -595,11 +611,11 @@ function CustomCodeTab({ rules, onChange, unitId }: { rules: CustomCodeRule[]; o
         )}
         <InputField label="키" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="예: header.time" />
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-slate-300">코드 ({'{$key}'} 플레이스홀더 사용)</label>
+          <label className="block text-xs font-medium text-slate-300">JS 표현식</label>
           <textarea
             value={form.code}
             onChange={(e) => setForm({ ...form, code: e.target.value })}
-            placeholder={'예: {$header.time}.replace("-", ".")\n예2: ({$body.counts}.toDouble() + 0.0001) / 1000.0'}
+            placeholder={'예: {$header.time}.replace("-", ".")\n예2: (Number({$body.counts}) + 0.0001) / 1000.0\n예3: {$header.name}.toUpperCase()'}
             rows={3}
             className="w-full px-3 py-2 text-xs font-mono rounded bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
           />
