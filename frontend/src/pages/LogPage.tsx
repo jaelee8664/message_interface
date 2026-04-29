@@ -22,10 +22,12 @@ interface TraceEntry {
 }
 
 interface TraceSearchResult {
-  fieldKey: string
-  fieldValue: string
+  filterGroups: { key: string; value: string }[][]
   traces: TraceEntry[]
 }
+
+type FilterCondition = { key: string; value: string }
+type FilterGroup = FilterCondition[]
 
 const PAGE_SIZE = 10
 
@@ -44,10 +46,11 @@ function formatTime(iso: string) {
   })
 }
 
-function toLocalDateStr(daysAgo = 0) {
-  const d = new Date()
-  d.setDate(d.getDate() - daysAgo)
-  return d.toISOString().split('T')[0]
+function toLocalDateTimeStr(hoursAgo = 0) {
+  const d = new Date(Date.now() - hoursAgo * 60 * 60 * 1000)
+  d.setSeconds(0, 0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function NodeBadge({ nodeType }: { nodeType: string }) {
@@ -131,7 +134,6 @@ function Pagination({ total, page, onChange }: { total: number; page: number; on
   const totalPages = Math.ceil(total / PAGE_SIZE)
   if (totalPages <= 1) return null
 
-  // Show up to 10 page buttons; if more, show window around current page
   const maxButtons = 10
   let start = 1
   let end = totalPages
@@ -146,13 +148,8 @@ function Pagination({ total, page, onChange }: { total: number; page: number; on
 
   return (
     <div className="flex items-center gap-1 mt-4 flex-wrap">
-      <button
-        onClick={() => onChange(page - 1)}
-        disabled={page === 1}
-        className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30"
-      >
-        ‹
-      </button>
+      <button onClick={() => onChange(page - 1)} disabled={page === 1}
+        className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30">‹</button>
       {start > 1 && (
         <>
           <button onClick={() => onChange(1)} className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600">1</button>
@@ -160,11 +157,8 @@ function Pagination({ total, page, onChange }: { total: number; page: number; on
         </>
       )}
       {pages.map(p => (
-        <button
-          key={p}
-          onClick={() => onChange(p)}
-          className={`px-2 py-1 text-xs rounded ${p === page ? 'bg-blue-600 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
-        >
+        <button key={p} onClick={() => onChange(p)}
+          className={`px-2 py-1 text-xs rounded ${p === page ? 'bg-blue-600 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
           {p}
         </button>
       ))}
@@ -174,61 +168,140 @@ function Pagination({ total, page, onChange }: { total: number; page: number; on
           <button onClick={() => onChange(totalPages)} className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600">{totalPages}</button>
         </>
       )}
-      <button
-        onClick={() => onChange(page + 1)}
-        disabled={page === totalPages}
-        className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30"
-      >
-        ›
-      </button>
+      <button onClick={() => onChange(page + 1)} disabled={page === totalPages}
+        className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30">›</button>
       <span className="text-xs text-slate-500 ml-2">{total}건 / {totalPages}페이지</span>
     </div>
   )
 }
 
+const MAX_MS = 48 * 60 * 60 * 1000
+
+function formatDt(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Renders a single filter group box. */
+function FilterGroupBox({
+  group, groupIndex, totalGroups,
+  onChange, onAddCondition, onRemoveCondition, onRemoveGroup, onSearch,
+}: {
+  group: FilterGroup
+  groupIndex: number
+  totalGroups: number
+  onChange: (gi: number, ci: number, field: 'key' | 'value', val: string) => void
+  onAddCondition: (gi: number) => void
+  onRemoveCondition: (gi: number, ci: number) => void
+  onRemoveGroup: (gi: number) => void
+  onSearch: () => void
+}) {
+  return (
+    <div className="rounded-lg border border-slate-600 bg-slate-900 p-3">
+      <div className="flex flex-col gap-1.5">
+        {group.map((cond, ci) => (
+          <div key={ci} className="flex items-center gap-2">
+            {ci > 0 && (
+              <span className="text-xs font-bold text-emerald-400 w-8 text-center select-none">AND</span>
+            )}
+            {ci === 0 && <div className="w-8" />}
+            <input
+              value={cond.key}
+              onChange={e => onChange(groupIndex, ci, 'key', e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && onSearch()}
+              placeholder="필드 키 (예: header.id)"
+              className="px-3 py-1.5 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-48"
+            />
+            <input
+              value={cond.value}
+              onChange={e => onChange(groupIndex, ci, 'value', e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && onSearch()}
+              placeholder="값 (비우면 존재 여부)"
+              className="px-3 py-1.5 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-36"
+            />
+            {group.length > 1 && (
+              <button
+                onClick={() => onRemoveCondition(groupIndex, ci)}
+                className="text-xs text-slate-500 hover:text-red-400 px-1"
+                title="조건 삭제"
+              >×</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-700">
+        <button
+          onClick={() => onAddCondition(groupIndex)}
+          className="text-xs text-slate-400 hover:text-white"
+        >
+          + AND 조건 추가
+        </button>
+        {totalGroups > 1 && (
+          <button
+            onClick={() => onRemoveGroup(groupIndex)}
+            className="ml-auto text-xs text-slate-600 hover:text-red-400"
+          >
+            그룹 삭제
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function LogPage() {
-  const [fieldKey, setFieldKey] = useState('')
-  const [fieldValue, setFieldValue] = useState('')
-  const [fromDate, setFromDate] = useState(toLocalDateStr(1))
-  const [toDate, setToDate] = useState(toLocalDateStr(0))
+  const [groups, setGroups] = useState<FilterGroup[]>([[{ key: '', value: '' }]])
+  const [fromDate, setFromDate] = useState(toLocalDateTimeStr(24))
+  const [toDate, setToDate] = useState(toLocalDateTimeStr(0))
 
-  const MAX_DAYS = 2
-
-  function handleFromDateChange(val: string) {
-    setFromDate(val)
-    const from = new Date(val)
-    const to = new Date(toDate)
-    const diffDays = (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)
-    if (diffDays > MAX_DAYS) {
-      const capped = new Date(from)
-      capped.setDate(capped.getDate() + MAX_DAYS)
-      setToDate(capped.toISOString().split('T')[0])
-    }
-  }
-
-  function handleToDateChange(val: string) {
-    setToDate(val)
-    const from = new Date(fromDate)
-    const to = new Date(val)
-    const diffDays = (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)
-    if (diffDays > MAX_DAYS) {
-      const capped = new Date(to)
-      capped.setDate(capped.getDate() - MAX_DAYS)
-      setFromDate(capped.toISOString().split('T')[0])
-    }
-  }
   const [result, setResult] = useState<TraceSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+
+  function addGroup() {
+    setGroups(g => [...g, [{ key: '', value: '' }]])
+  }
+
+  function removeGroup(gi: number) {
+    setGroups(g => g.filter((_, i) => i !== gi))
+  }
+
+  function addCondition(gi: number) {
+    setGroups(g => g.map((group, i) => i === gi ? [...group, { key: '', value: '' }] : group))
+  }
+
+  function removeCondition(gi: number, ci: number) {
+    setGroups(g => g.map((group, i) => i === gi ? group.filter((_, j) => j !== ci) : group))
+  }
+
+  function updateCondition(gi: number, ci: number, field: 'key' | 'value', val: string) {
+    setGroups(g => g.map((group, i) =>
+      i === gi ? group.map((cond, j) => j === ci ? { ...cond, [field]: val } : cond) : group
+    ))
+  }
+
+  function handleFromChange(val: string) {
+    setFromDate(val)
+    if (new Date(toDate).getTime() - new Date(val).getTime() > MAX_MS)
+      setToDate(formatDt(new Date(new Date(val).getTime() + MAX_MS)))
+  }
+
+  function handleToChange(val: string) {
+    setToDate(val)
+    if (new Date(val).getTime() - new Date(fromDate).getTime() > MAX_MS)
+      setFromDate(formatDt(new Date(new Date(val).getTime() - MAX_MS)))
+  }
 
   const search = async () => {
     setLoading(true)
     setError(null)
     setPage(1)
     try {
-      const res = await axios.get('/synapse/logs/trace', {
-        params: { fieldKey, fieldValue, fromDate, toDate }
+      const res = await axios.post('/synapse/logs/trace', {
+        filterGroups: groups,
+        fromDate,
+        toDate,
       })
       setResult(res.data.data)
     } catch (e: any) {
@@ -238,57 +311,75 @@ export default function LogPage() {
     }
   }
 
-  // Newest first
   const traces = [...(result?.traces ?? [])].reverse()
   const totalPages = Math.ceil(traces.length / PAGE_SIZE)
   const pageTraces = traces.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  const activeGroups = result?.filterGroups.filter(g => g.some(c => c.key || c.value)) ?? []
 
   return (
     <div className="p-6 h-full overflow-auto">
       <h1 className="text-xl font-bold text-white mb-6">메세지 추적 로그</h1>
 
       {/* Search form */}
-      <div className="flex flex-wrap gap-3 mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">필드 키</label>
-          <input
-            value={fieldKey}
-            onChange={e => setFieldKey(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && search()}
-            placeholder="예: header.trace_id"
-            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-48"
-          />
+      <div className="mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700">
+
+        {/* Filter groups */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-slate-400 font-medium">필터 조건</span>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">값</label>
-          <input
-            value={fieldValue}
-            onChange={e => setFieldValue(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && search()}
-            placeholder="예: idnum_1"
-            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-48"
-          />
+
+        <div className="flex flex-col gap-0">
+          {groups.map((group, gi) => (
+            <div key={gi}>
+              {gi > 0 && (
+                <div className="flex items-center gap-2 my-2">
+                  <div className="flex-1 border-t border-dashed border-slate-700" />
+                  <span className="text-xs font-bold text-orange-400 px-2 py-0.5 rounded border border-orange-800 bg-orange-950/30">OR</span>
+                  <div className="flex-1 border-t border-dashed border-slate-700" />
+                </div>
+              )}
+              <FilterGroupBox
+                group={group}
+                groupIndex={gi}
+                totalGroups={groups.length}
+                onChange={updateCondition}
+                onAddCondition={addCondition}
+                onRemoveCondition={removeCondition}
+                onRemoveGroup={removeGroup}
+                onSearch={search}
+              />
+            </div>
+          ))}
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">시작일</label>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={e => handleFromDateChange(e.target.value)}
-            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-40"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">종료일 (최대 2일)</label>
-          <input
-            type="date"
-            value={toDate}
-            onChange={e => handleToDateChange(e.target.value)}
-            className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500 w-40"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400">&nbsp;</label>
+
+        <button
+          onClick={addGroup}
+          className="mt-3 text-xs text-slate-400 hover:text-white border border-dashed border-slate-600 hover:border-slate-400 rounded px-3 py-1.5 w-full"
+        >
+          + OR 그룹 추가
+        </button>
+
+        {/* Date range + search */}
+        <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-slate-700 items-end">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">시작</label>
+            <input
+              type="datetime-local"
+              value={fromDate}
+              onChange={e => handleFromChange(e.target.value)}
+              className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">종료 (최대 48시간)</label>
+            <input
+              type="datetime-local"
+              value={toDate}
+              onChange={e => handleToChange(e.target.value)}
+              className="px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
           <button
             onClick={search}
             disabled={loading}
@@ -319,22 +410,31 @@ export default function LogPage() {
 
       {/* Result header */}
       {result && (
-        <div className="text-sm text-slate-400 mb-4">
-          {result.fieldKey && result.fieldValue ? (
+        <div className="text-sm text-slate-400 mb-4 flex flex-wrap items-center gap-1">
+          {activeGroups.length > 0 ? (
             <>
-              <span className="text-white font-mono">{result.fieldKey}</span>
-              {' = '}
-              <span className="text-blue-400 font-mono">"{result.fieldValue}"</span>
-              {' — '}
+              {activeGroups.map((group, gi) => (
+                <span key={gi} className="flex items-center gap-1">
+                  {gi > 0 && <span className="text-orange-400 font-bold text-xs mx-1">OR</span>}
+                  {group.length > 1 && <span className="text-slate-500">(</span>}
+                  {group.filter(c => c.key || c.value).map((c, ci) => (
+                    <span key={ci} className="flex items-center gap-1">
+                      {ci > 0 && <span className="text-emerald-400 font-bold text-xs mx-0.5">AND</span>}
+                      <span className="text-white font-mono">{c.key}</span>
+                      {c.value && <> = <span className="text-blue-400 font-mono">"{c.value}"</span></>}
+                    </span>
+                  ))}
+                  {group.length > 1 && <span className="text-slate-500">)</span>}
+                </span>
+              ))}
+              <span className="mx-1">—</span>
             </>
           ) : (
-            <span className="text-slate-500">필터 없음 (최근 {traces.length}건) — </span>
+            <span className="text-slate-500">필터 없음 — </span>
           )}
           <span className="text-white">{traces.length}건</span>
           {traces.length > PAGE_SIZE && (
-            <span className="text-slate-500 ml-2">
-              (페이지 {page} / {totalPages})
-            </span>
+            <span className="text-slate-500 ml-1">(페이지 {page} / {totalPages})</span>
           )}
         </div>
       )}
@@ -342,14 +442,13 @@ export default function LogPage() {
       {/* Trace list */}
       {traces.length === 0 && !loading && result && (
         <div className="text-slate-500 text-center py-12">
-          {result.fieldKey || result.fieldValue ? '조건에 맞는 메세지 없음' : '해당 날짜 범위에 로그 없음'}
+          {activeGroups.length > 0 ? '조건에 맞는 메세지 없음' : '해당 시간 범위에 로그 없음'}
         </div>
       )}
       {pageTraces.map((trace, i) => (
         <TraceCard key={i} trace={trace} />
       ))}
 
-      {/* Pagination */}
       <Pagination total={traces.length} page={page} onChange={setPage} />
     </div>
   )

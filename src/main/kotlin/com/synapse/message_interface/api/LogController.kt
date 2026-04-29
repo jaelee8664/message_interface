@@ -1,6 +1,7 @@
 package com.synapse.message_interface.api
 
 import com.synapse.message_interface.api.dto.ApiResponse
+import com.synapse.message_interface.api.dto.TraceSearchRequest
 import com.synapse.message_interface.log.MessageTraceLogger
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -27,20 +28,26 @@ class LogController(private val logger: MessageTraceLogger) {
     }
 
     /**
-     * Trace search — finds all system traceIds containing the field value,
-     * then returns all their log entries grouped by traceId in time order.
+     * Trace search — finds traceIds matching the filter groups, then returns all their
+     * log entries grouped by traceId in time order.
+     *
+     * filterGroups: list of AND-groups OR-ed together.
+     *   e.g. [[{A=1},{B=2}],[{C=3}]] → (A=1 AND B=2) OR C=3
+     * fromDate / toDate: "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" (local time).
      */
-    @GetMapping("/trace")
-    suspend fun trace(
-        @RequestParam(required = false, defaultValue = "") fieldKey: String,
-        @RequestParam(required = false, defaultValue = "") fieldValue: String,
-        @RequestParam(defaultValue = "true") fromFiles: Boolean,
-        @RequestParam(defaultValue = "7") days: Int,
-        @RequestParam(required = false) fromDate: String?,
-        @RequestParam(required = false) toDate: String?,
-        @RequestParam(defaultValue = "50") maxTraces: Int
-    ): ResponseEntity<ApiResponse<*>> {
-        val result = logger.searchTraces(fieldKey, fieldValue, fromFiles, days, maxTraces, fromDate, toDate)
+    @PostMapping("/trace")
+    suspend fun trace(@RequestBody request: TraceSearchRequest): ResponseEntity<ApiResponse<*>> {
+        val filterGroups = request.filterGroups.map { group ->
+            group.map { it.key to it.value }
+        }
+        val result = logger.searchTraces(
+            filterGroups = filterGroups,
+            fromFiles = request.fromFiles,
+            days = request.days,
+            maxTraces = request.maxTraces,
+            fromDateStr = request.fromDate,
+            toDateStr = request.toDate
+        )
         return ResponseEntity.ok(ApiResponse.ok(result))
     }
 }

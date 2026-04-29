@@ -10,7 +10,6 @@ data class TraceEntry(
 )
 
 data class TraceSearchResult(
-    val fieldKey: String,
-    val fieldValue: String,
+    val filterGroups: List<List<Map<String, String>>>,
     val traces: List<TraceEntry>
 )

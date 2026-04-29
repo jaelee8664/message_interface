@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.synapse.message_interface.engine.FlatMessageAccessor
+import com.synapse.message_interface.engine.fieldStatus
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
@@ -17,6 +18,8 @@ import java.io.File
 import java.io.FileWriter
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicReference
 
@@ -135,40 +138,67 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     }
 
     /**
-     * Find all logs where [fieldKey] == [fieldValue] (supports dot-notation like "header.trace_id"),
+     * Find all logs matching [filterGroups] (supports dot-notation like "header.trace_id"),
      * then return every log entry sharing those traceIds, grouped by traceId and ordered by time.
+     *
+     * [filterGroups]: each inner list is AND-ed; outer list is OR-ed.
+     *   e.g. [[A=1, B=2], [C=3]] → (A=1 AND B=2) OR C=3
+     * [fromDateStr]/[toDateStr]: "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" (local time).
      */
     suspend fun searchTraces(
-        fieldKey: String,
-        fieldValue: String,
+        filterGroups: List<List<Pair<String, String>>>,
         fromFiles: Boolean,
         days: Int = 7,
         maxTraces: Int = 50,
         fromDateStr: String? = null,
         toDateStr: String? = null
     ): TraceSearchResult = withContext(Dispatchers.IO) {
-        val fmt = DateTimeFormatter.ISO_LOCAL_DATE
-        val from = fromDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now().minusDays(days.toLong())
-        val to = toDateStr?.let { LocalDate.parse(it, fmt) } ?: LocalDate.now()
+        val zone = ZoneId.systemDefault()
+        val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE
+        val dtFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
 
-        val noFilter = fieldKey.isBlank() && fieldValue.isBlank()
+        fun parseInstant(s: String, endPeriod: Boolean): Instant {
+            return if (s.contains('T')) {
+                val ldt = LocalDateTime.parse(s.take(16), dtFmt)
+                val inst = ldt.atZone(zone).toInstant()
+                if (endPeriod) inst.plusSeconds(59) else inst
+            } else {
+                val d = LocalDate.parse(s, dateFmt)
+                if (endPeriod) d.atTime(23, 59, 59).atZone(zone).toInstant()
+                else d.atStartOfDay(zone).toInstant()
+            }
+        }
+
+        val fromInstant = fromDateStr?.let { parseInstant(it, false) }
+            ?: LocalDate.now().minusDays(days.toLong()).atStartOfDay(zone).toInstant()
+        val toInstant = toDateStr?.let { parseInstant(it, true) }
+            ?: LocalDate.now().atTime(23, 59, 59).atZone(zone).toInstant()
+        val from = fromInstant.atZone(zone).toLocalDate()
+        val to = toInstant.atZone(zone).toLocalDate()
+
+        // Strip empty conditions, then empty groups
+        val activeGroups = filterGroups
+            .map { group -> group.filter { (k, v) -> k.isNotBlank() || v.isNotBlank() } }
+            .filter { it.isNotEmpty() }
+        val noFilter = activeGroups.isEmpty()
+        val groupMaps = activeGroups.map { group -> group.map { mapOf("key" to it.first, "value" to it.second) } }
 
         val grouped = if (fromFiles) {
             val matchedTraceIds = if (noFilter) {
-                // Single-pass with early exit — stop once maxTraces unique traceIds are collected
-                collectFirstNTraceIds(from, to, maxTraces)
+                collectFirstNTraceIds(from, to, fromInstant, toInstant, maxTraces)
             } else {
-                collectMatchedTraceIds(from, to, fieldKey, fieldValue)
+                collectMatchedTraceIds(from, to, fromInstant, toInstant, activeGroups)
             }
-            if (matchedTraceIds.isEmpty()) return@withContext TraceSearchResult(fieldKey, fieldValue, emptyList())
+            if (matchedTraceIds.isEmpty()) return@withContext TraceSearchResult(groupMaps, emptyList())
             collectLogsByTraceIds(from, to, matchedTraceIds)
         } else {
             val allLogs = synchronized(lock) { recentLogs.toList() }
+            val timeFiltered = allLogs.filter { !it.timestamp.isBefore(fromInstant) && !it.timestamp.isAfter(toInstant) }
             val matchedTraceIds = if (noFilter) {
-                allLogs.map { it.traceId }.distinct().take(maxTraces).toSet()
+                timeFiltered.map { it.traceId }.distinct().take(maxTraces).toSet()
             } else {
-                allLogs
-                    .filter { log -> matchesField(log.messageSnippet, fieldKey, fieldValue) }
+                timeFiltered
+                    .filter { log -> matchesGroups(log.messageSnippet, activeGroups) }
                     .map { it.traceId }
                     .toSet()
             }
@@ -187,7 +217,7 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
             .sortedBy { it.firstSeen }
             .take(maxTraces)
 
-        TraceSearchResult(fieldKey = fieldKey, fieldValue = fieldValue, traces = grouped)
+        TraceSearchResult(filterGroups = groupMaps, traces = grouped)
     }
 
     /**
@@ -304,8 +334,29 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
 
     private fun matchesField(snippet: Map<String, Any?>, fieldKey: String, fieldValue: String): Boolean {
         return runCatching {
-            FlatMessageAccessor.get(snippet, fieldKey)?.toString() == fieldValue
+            val actual = FlatMessageAccessor.get(snippet, fieldKey)
+            if (actual == fieldStatus.NOKEY) return@runCatching false
+
+            // Value blank → existence check (key exists and is not null)
+            if (fieldValue.isBlank()) return@runCatching actual != null
+
+            val actualStr = actual?.toString() ?: return@runCatching false
+            if (actualStr == fieldValue) return@runCatching true
+
+            // Numeric fallback: handles Double "200.0" vs query "200", etc.
+            val numActual = actualStr.toDoubleOrNull()
+            val numQuery = fieldValue.toDoubleOrNull()
+            numActual != null && numQuery != null && numActual == numQuery
         }.getOrDefault(false)
+    }
+
+    /** (A AND B) OR (C AND D) — each inner list is ANDed, outer list is ORed. */
+    private fun matchesGroups(
+        snippet: Map<String, Any?>,
+        groups: List<List<Pair<String, String>>>
+    ): Boolean {
+        if (groups.isEmpty()) return true
+        return groups.any { group -> group.all { (key, value) -> matchesField(snippet, key, value) } }
     }
 
     private fun targetFiles(fromDate: LocalDate, toDate: LocalDate): List<File> =
@@ -320,8 +371,12 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
             }
             .sortedByDescending { it.name }
 
-    /** Single-pass: collect the first [maxCount] unique traceIds from the date range — exits early once limit is reached. */
-    private fun collectFirstNTraceIds(fromDate: LocalDate, toDate: LocalDate, maxCount: Int): Set<String> {
+    /** Single-pass: collect the first [maxCount] unique traceIds in [fromInstant, toInstant] — exits early once limit is reached. */
+    private fun collectFirstNTraceIds(
+        fromDate: LocalDate, toDate: LocalDate,
+        fromInstant: Instant, toInstant: Instant,
+        maxCount: Int
+    ): Set<String> {
         val traceIds = LinkedHashSet<String>()
         for (file in targetFiles(fromDate, toDate)) {
             if (traceIds.size >= maxCount) break
@@ -329,17 +384,21 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
                 for (line in reader.lineSequence()) {
                     if (traceIds.size >= maxCount) break
                     runCatching { objectMapper.readValue(line, TraceLog::class.java) }
-                        .onSuccess { traceIds.add(it.traceId) }
+                        .onSuccess { log ->
+                            if (!log.timestamp.isBefore(fromInstant) && !log.timestamp.isAfter(toInstant))
+                                traceIds.add(log.traceId)
+                        }
                 }
             }
         }
         return traceIds
     }
 
-    /** Pass 1: scan files and collect only traceIds where fieldKey == fieldValue. */
+    /** Pass 1: scan files and collect traceIds matching [filterGroups] within [fromInstant, toInstant]. */
     private fun collectMatchedTraceIds(
         fromDate: LocalDate, toDate: LocalDate,
-        fieldKey: String, fieldValue: String
+        fromInstant: Instant, toInstant: Instant,
+        filterGroups: List<List<Pair<String, String>>>
     ): Set<String> {
         val traceIds = mutableSetOf<String>()
         for (file in targetFiles(fromDate, toDate)) {
@@ -347,7 +406,9 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
                 reader.lineSequence().forEach { line ->
                     runCatching {
                         val log = objectMapper.readValue(line, TraceLog::class.java)
-                        if (matchesField(log.messageSnippet, fieldKey, fieldValue)) {
+                        if (!log.timestamp.isBefore(fromInstant) && !log.timestamp.isAfter(toInstant) &&
+                            matchesGroups(log.messageSnippet, filterGroups)
+                        ) {
                             traceIds.add(log.traceId)
                         }
                     }
