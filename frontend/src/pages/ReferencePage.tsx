@@ -6,7 +6,7 @@ const SECTION_HINTS: Record<string, Record<string, string>> = {
   log: {
     retentionDays: '로그 파일 보존 기간 (일)',
     maxSizeGb: '로그 디렉터리 최대 용량 (GB). 초과 시 오래된 파일부터 삭제',
-    directory: '로그 저장 디렉터리 경로',
+    directory: '로그 저장 디렉터리 경로. 변경 시 다음 시간 단위 파일부터 반영됩니다',
     cleanupIntervalHours: '정리 작업 실행 주기 (시간)',
   },
   history: {
@@ -15,7 +15,7 @@ const SECTION_HINTS: Record<string, Record<string, string>> = {
   deadLetter: {
     enabled: '처리 실패 메시지를 Dead Letter로 보관할지 여부',
     retentionDays: 'Dead Letter 파일 보존 기간 (일)',
-    directory: 'Dead Letter 저장 디렉터리 경로',
+    directory: 'Dead Letter 저장 디렉터리 경로. 변경 시 애플리케이션 재시작 후 반영됩니다',
     cleanupIntervalHours: '정리 작업 실행 주기 (시간)',
   },
   mongoQueue: {
@@ -79,8 +79,8 @@ export default function ReferencePage() {
           {renderSection('히스토리', 'history', config, setConfig)}
           {renderSection('Dead Letter', 'deadLetter', config, setConfig)}
           {renderSection('MongoDB 큐', 'mongoQueue', config, setConfig)}
-          {renderSection('TCP 서버', 'tcpServer', config, setConfig)}
-          {renderSection('WebSocket 서버', 'webSocketServer', config, setConfig)}
+          {renderSection('TCP 서버', 'tcpServer', config, setConfig, '* 새로 접속하는 연결부터 반영됩니다')}
+          {renderSection('WebSocket 서버', 'webSocketServer', config, setConfig, '* 새로 접속하는 연결부터 반영됩니다')}
           {renderGrpcServerSection(config, setConfig)}
           {renderLlmSection(config, setConfig)}
         </div>
@@ -225,6 +225,7 @@ function renderGrpcServerSection(
           <p className="text-[11px] text-slate-500 pl-52">활성 스트림이 없는 클라이언트의 ping 허용 여부</p>
         </div>
       </div>
+      <p className="text-[11px] text-slate-500 mt-3">* 변경 사항은 GRPC_SERVER 유닛을 재저장하거나 애플리케이션을 재시작할 때 반영됩니다</p>
     </div>
   )
 }
@@ -352,7 +353,8 @@ function renderSection(
   title: string,
   key: string,
   config: Record<string, any>,
-  setConfig: React.Dispatch<React.SetStateAction<Record<string, any>>>
+  setConfig: React.Dispatch<React.SetStateAction<Record<string, any>>>,
+  note?: string
 ) {
   const section = config[key]
   if (!section) return null
@@ -362,6 +364,7 @@ function renderSection(
       <div className="space-y-2">
         {renderFields(section, key, undefined, setConfig, SECTION_HINTS[key])}
       </div>
+      {note && <p className="text-[11px] text-slate-500 mt-3">{note}</p>}
     </div>
   )
 }

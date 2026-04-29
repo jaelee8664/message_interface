@@ -8,6 +8,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.synapse.message_interface.config.ReferenceConfigService
 import com.synapse.message_interface.engine.FlatMessageAccessor
 import com.synapse.message_interface.engine.fieldStatus
 import org.springframework.beans.factory.DisposableBean
@@ -21,10 +22,14 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.atomic.AtomicReference
 
 @Component
-class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBean {
+class MessageTraceLogger(
+    private val objectMapper: ObjectMapper,
+    private val referenceConfigService: ReferenceConfigService,
+) : DisposableBean {
 
     companion object {
         const val LOG_DIR = "message-logs"
@@ -35,9 +40,15 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         const val CHANNEL_CAPACITY = 100_000
         /** Periodic flush interval in milliseconds — limits maximum log loss on crash. */
         const val FLUSH_INTERVAL_MS = 1_000L
+        val HOUR_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH")
     }
 
-    private val logDir = File(LOG_DIR).also { it.mkdirs() }
+    @Suppress("UNCHECKED_CAST")
+    private fun logDir(): File {
+        val dir = (referenceConfigService.getConfig()["log"] as? Map<*, *>)
+            ?.get("directory") as? String ?: LOG_DIR
+        return File(dir).also { it.mkdirs() }
+    }
 
     /** Single-producer / single-consumer channel — the background coroutine owns all file I/O. */
     private val channel = Channel<TraceLog>(capacity = CHANNEL_CAPACITY)
@@ -57,7 +68,7 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     private val unitBuckets = java.util.concurrent.ConcurrentHashMap<String, Array<MinuteBucket>>()
 
     /** Shared reference so the flush coroutine can reach the writer owned by the consumer coroutine. */
-    private val fileWriterRef = AtomicReference<DailyFileWriter?>(null)
+    private val fileWriterRef = AtomicReference<HourlyFileWriter?>(null)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -173,9 +184,6 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
             ?: LocalDate.now().minusDays(days.toLong()).atStartOfDay(zone).toInstant()
         val toInstant = toDateStr?.let { parseInstant(it, true) }
             ?: LocalDate.now().atTime(23, 59, 59).atZone(zone).toInstant()
-        val from = fromInstant.atZone(zone).toLocalDate()
-        val to = toInstant.atZone(zone).toLocalDate()
-
         // Strip empty conditions, then empty groups
         val activeGroups = filterGroups
             .map { group -> group.filter { (k, v) -> k.isNotBlank() || v.isNotBlank() } }
@@ -184,13 +192,19 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         val groupMaps = activeGroups.map { group -> group.map { mapOf("key" to it.first, "value" to it.second) } }
 
         val grouped = if (fromFiles) {
-            val matchedTraceIds = if (noFilter) {
-                collectFirstNTraceIds(from, to, fromInstant, toInstant, maxTraces)
+            val matchedTraceIds: Set<String>
+            val scanFrom: Instant
+            if (noFilter) {
+                val (ids, oldest) = collectFirstNTraceIds(fromInstant, toInstant, maxTraces)
+                matchedTraceIds = ids
+                // narrow pass-2 to 1 hour before the oldest found trace (buffer for cross-hour boundaries)
+                scanFrom = oldest?.minusSeconds(3600)?.coerceAtLeast(fromInstant) ?: fromInstant
             } else {
-                collectMatchedTraceIds(from, to, fromInstant, toInstant, activeGroups)
+                matchedTraceIds = collectMatchedTraceIds(fromInstant, toInstant, activeGroups)
+                scanFrom = fromInstant
             }
             if (matchedTraceIds.isEmpty()) return@withContext TraceSearchResult(groupMaps, emptyList())
-            collectLogsByTraceIds(from, to, matchedTraceIds)
+            collectLogsByTraceIds(scanFrom, toInstant, matchedTraceIds)
         } else {
             val allLogs = synchronized(lock) { recentLogs.toList() }
             val timeFiltered = allLogs.filter { !it.timestamp.isBefore(fromInstant) && !it.timestamp.isAfter(toInstant) }
@@ -231,31 +245,24 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         limit: Int = 500
     ): List<TraceLog> = withContext(Dispatchers.IO) {
         val results = mutableListOf<TraceLog>()
-        val cutoff = LocalDate.now().minusDays(days.toLong())
+        val fromInstant = LocalDate.now().minusDays(days.toLong())
+            .atStartOfDay(ZoneId.systemDefault()).toInstant()
+        val toInstant = Instant.now()
 
-        logDir.listFiles()
-            ?.filter { f ->
-                f.name.startsWith("trace_") && f.name.endsWith(".jsonl") &&
-                runCatching {
-                    val dateStr = f.name.removePrefix("trace_").removeSuffix(".jsonl")
-                    !LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE).isBefore(cutoff)
-                }.getOrDefault(false)
-            }
-            ?.sortedByDescending { it.name } // newest first
-            ?.forEach { file ->
-                if (results.size >= limit) return@forEach
-                file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
-                    reader.lineSequence().forEach { line ->
-                        if (results.size >= limit) return@forEach
-                        runCatching {
-                            val log = objectMapper.readValue(line, TraceLog::class.java)
-                            if (matchesField(log.messageSnippet, fieldKey, fieldValue)) {
-                                results.add(log)
-                            }
+        for (file in targetFiles(fromInstant, toInstant)) {
+            if (results.size >= limit) break
+            file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                reader.lineSequence().forEach { line ->
+                    if (results.size >= limit) return@forEach
+                    runCatching {
+                        val log = objectMapper.readValue(line, TraceLog::class.java)
+                        if (matchesField(log.messageSnippet, fieldKey, fieldValue)) {
+                            results.add(log)
                         }
                     }
                 }
             }
+        }
 
         results.sortedByDescending { it.timestamp }
     }
@@ -269,30 +276,22 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         to: java.time.Instant,
         unitIds: Set<String>
     ): List<TraceLog> = withContext(Dispatchers.IO) {
-        val fromDate = from.atZone(java.time.ZoneOffset.UTC).toLocalDate()
-        val toDate = to.atZone(java.time.ZoneOffset.UTC).toLocalDate()
-
         val results = mutableListOf<TraceLog>()
-        var date = fromDate
-        while (!date.isAfter(toDate)) {
-            val file = File(logDir, "trace_${date.format(DateTimeFormatter.ISO_LOCAL_DATE)}.jsonl")
-            if (file.exists()) {
-                file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
-                    reader.lineSequence().forEach { line ->
-                        runCatching {
-                            val log = objectMapper.readValue(line, TraceLog::class.java)
-                            if (log.nodeType == "NODE0" &&
-                                log.workflowUnitId in unitIds &&
-                                !log.timestamp.isBefore(from) &&
-                                log.timestamp.isBefore(to)
-                            ) {
-                                results.add(log)
-                            }
+        for (file in targetFiles(from, to)) {
+            file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
+                reader.lineSequence().forEach { line ->
+                    runCatching {
+                        val log = objectMapper.readValue(line, TraceLog::class.java)
+                        if (log.nodeType == "NODE0" &&
+                            log.workflowUnitId in unitIds &&
+                            !log.timestamp.isBefore(from) &&
+                            log.timestamp.isBefore(to)
+                        ) {
+                            results.add(log)
                         }
                     }
                 }
             }
-            date = date.plusDays(1)
         }
         results.sortedBy { it.timestamp }
     }
@@ -305,7 +304,7 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
     // ── Background coroutines ─────────────────────────────────────────────────
 
     private suspend fun consumeLogs() {
-        val fileWriter = DailyFileWriter().also { fileWriterRef.set(it) }
+        val fileWriter = HourlyFileWriter().also { fileWriterRef.set(it) }
         try {
             for (log in channel) {
                 val json = objectMapper.writeValueAsString(log)
@@ -359,49 +358,58 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         return groups.any { group -> group.all { (key, value) -> matchesField(snippet, key, value) } }
     }
 
-    private fun targetFiles(fromDate: LocalDate, toDate: LocalDate): List<File> =
-        (logDir.listFiles() ?: emptyArray())
-            .filter { f ->
-                f.name.startsWith("trace_") && f.name.endsWith(".jsonl") &&
-                runCatching {
-                    val dateStr = f.name.removePrefix("trace_").removeSuffix(".jsonl")
-                    val fileDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE)
-                    !fileDate.isBefore(fromDate) && !fileDate.isAfter(toDate)
-                }.getOrDefault(false)
-            }
-            .sortedByDescending { it.name }
+    /** Enumerates hourly log files covering [fromInstant, toInstant], newest first. */
+    private fun targetFiles(fromInstant: Instant, toInstant: Instant): List<File> {
+        val zone = ZoneId.systemDefault()
+        val fromHour = fromInstant.atZone(zone).truncatedTo(ChronoUnit.HOURS)
+        val toHour = toInstant.atZone(zone).truncatedTo(ChronoUnit.HOURS)
+        val dir = logDir()
+        val files = mutableListOf<File>()
+        var cur = fromHour
+        while (!cur.isAfter(toHour)) {
+            val f = File(dir, "trace_${cur.format(HOUR_FMT)}.jsonl")
+            if (f.exists()) files.add(f)
+            cur = cur.plusHours(1)
+        }
+        return files.sortedByDescending { it.name }
+    }
 
-    /** Single-pass: collect the first [maxCount] unique traceIds in [fromInstant, toInstant] — exits early once limit is reached. */
+    /**
+     * Single-pass: collect the first [maxCount] unique traceIds in [fromInstant, toInstant].
+     * Also returns the oldest timestamp among found traceIds (used to narrow pass-2 scan range).
+     */
     private fun collectFirstNTraceIds(
-        fromDate: LocalDate, toDate: LocalDate,
-        fromInstant: Instant, toInstant: Instant,
-        maxCount: Int
-    ): Set<String> {
+        fromInstant: Instant, toInstant: Instant, maxCount: Int
+    ): Pair<Set<String>, Instant?> {
         val traceIds = LinkedHashSet<String>()
-        for (file in targetFiles(fromDate, toDate)) {
+        var oldest: Instant? = null
+        for (file in targetFiles(fromInstant, toInstant)) {
             if (traceIds.size >= maxCount) break
             file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
                 for (line in reader.lineSequence()) {
                     if (traceIds.size >= maxCount) break
                     runCatching { objectMapper.readValue(line, TraceLog::class.java) }
                         .onSuccess { log ->
-                            if (!log.timestamp.isBefore(fromInstant) && !log.timestamp.isAfter(toInstant))
-                                traceIds.add(log.traceId)
+                            if (!log.timestamp.isBefore(fromInstant) && !log.timestamp.isAfter(toInstant)) {
+                                if (traceIds.add(log.traceId) &&
+                                    (oldest == null || log.timestamp.isBefore(oldest!!))) {
+                                    oldest = log.timestamp
+                                }
+                            }
                         }
                 }
             }
         }
-        return traceIds
+        return traceIds to oldest
     }
 
     /** Pass 1: scan files and collect traceIds matching [filterGroups] within [fromInstant, toInstant]. */
     private fun collectMatchedTraceIds(
-        fromDate: LocalDate, toDate: LocalDate,
         fromInstant: Instant, toInstant: Instant,
         filterGroups: List<List<Pair<String, String>>>
     ): Set<String> {
         val traceIds = mutableSetOf<String>()
-        for (file in targetFiles(fromDate, toDate)) {
+        for (file in targetFiles(fromInstant, toInstant)) {
             file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
                 reader.lineSequence().forEach { line ->
                     runCatching {
@@ -418,13 +426,12 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         return traceIds
     }
 
-    /** Pass 2: scan files again and collect only logs belonging to matched traceIds. */
+    /** Pass 2: collect all log entries belonging to [traceIds] within [fromInstant, toInstant]. */
     private fun collectLogsByTraceIds(
-        fromDate: LocalDate, toDate: LocalDate,
-        traceIds: Set<String>
+        fromInstant: Instant, toInstant: Instant, traceIds: Set<String>
     ): List<TraceLog> {
         val results = mutableListOf<TraceLog>()
-        for (file in targetFiles(fromDate, toDate)) {
+        for (file in targetFiles(fromInstant, toInstant)) {
             file.bufferedReader(Charsets.UTF_8, bufferSize = 65_536).use { reader ->
                 reader.lineSequence().forEach { line ->
                     runCatching {
@@ -437,19 +444,19 @@ class MessageTraceLogger(private val objectMapper: ObjectMapper) : DisposableBea
         return results
     }
 
-    // ── Daily file writer (append mode, buffered) ─────────────────────────────
+    // ── Hourly file writer (append mode, buffered) ────────────────────────────
 
-    private inner class DailyFileWriter : AutoCloseable {
-        private var currentDate: LocalDate = LocalDate.MIN
+    private inner class HourlyFileWriter : AutoCloseable {
+        private var currentHour: String = ""
         private var writer: BufferedWriter? = null
 
         fun write(json: String) {
-            val today = LocalDate.now()
-            if (today != currentDate) {
+            val nowHour = LocalDateTime.now().format(HOUR_FMT)
+            if (nowHour != currentHour) {
                 writer?.flush()
                 writer?.close()
-                currentDate = today
-                val file = File(logDir, "trace_${today.format(DateTimeFormatter.ISO_LOCAL_DATE)}.jsonl")
+                currentHour = nowHour
+                val file = File(logDir(), "trace_${nowHour}.jsonl")
                 writer = FileWriter(file, true).buffered(65_536)
             }
             writer!!.write(json)
